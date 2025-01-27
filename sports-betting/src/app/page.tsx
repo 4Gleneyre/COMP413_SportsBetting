@@ -1,45 +1,19 @@
 'use client';
 
-import { useState } from 'react';
-import { ChevronRight } from 'lucide-react';
-
-// Sample data - in real app this would come from Firestore
-const sportsEvents = [
-  {
-    id: 1,
-    sport: 'Basketball',
-    team1: 'Los Angeles Lakers',
-    team2: 'Golden State Warriors',
-    date: '2024-02-01T20:00:00',
-    odds: { team1: 2.0, team2: 2.0 }
-  },
-  {
-    id: 2,
-    sport: 'Football',
-    team1: 'Kansas City Chiefs',
-    team2: 'San Francisco 49ers',
-    date: '2024-02-11T18:30:00',
-    odds: { team1: 2.0, team2: 2.0 }
-  },
-  {
-    id: 3,
-    sport: 'Baseball',
-    team1: 'New York Yankees',
-    team2: 'Boston Red Sox',
-    date: '2024-02-15T19:00:00',
-    odds: { team1: 2.0, team2: 2.0 }
-  }
-];
+import { useState, useEffect } from 'react';
+import { collection, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import type { Event } from '@/types/events';
 
 interface BettingModalProps {
-  event: any;
-  selectedTeam: 'team1' | 'team2';
+  event: Event;
+  selectedTeam: 'home' | 'visitor';
   onClose: () => void;
 }
 
 function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
   const [betAmount, setBetAmount] = useState<string>('');
-  const teamName = selectedTeam === 'team1' ? event.team1 : event.team2;
+  const teamName = selectedTeam === 'home' ? event.home_team.full_name : event.visitor_team.full_name;
   const numericAmount = Number(betAmount);
 
   const handleBet = () => {
@@ -97,13 +71,61 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
 }
 
 export default function Home() {
-  const [selectedBet, setSelectedBet] = useState<{ event: any; team: 'team1' | 'team2' } | null>(null);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' } | null>(null);
+
+  useEffect(() => {
+    async function fetchEvents() {
+      try {
+        const eventsRef = collection(db, 'events');
+        // Get events that haven't happened yet
+        const q = query(
+          eventsRef,
+          where('status', '>', new Date().toISOString())
+        );
+        const querySnapshot = await getDocs(q);
+        const eventsData: Event[] = [];
+        
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          eventsData.push({
+            ...data,
+            id: doc.id,
+            updatedAt: data.updatedAt?.toDate() || new Date(),
+          } as Event);
+        });
+
+        // Sort by date
+        eventsData.sort((a, b) => new Date(a.status).getTime() - new Date(b.status).getTime());
+        setEvents(eventsData);
+      } catch (error) {
+        console.error('Error fetching events:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchEvents();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="max-w-3xl mx-auto py-8 px-4">
+        <div className="animate-pulse space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-40 bg-gray-200 dark:bg-gray-700 rounded-xl" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
       <h2 className="text-3xl font-bold mb-8">Available Events</h2>
       <div className="space-y-4">
-        {sportsEvents.map((event) => (
+        {events.map((event) => (
           <div
             key={event.id}
             className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden"
@@ -111,10 +133,10 @@ export default function Home() {
             <div className="p-4">
               <div className="flex items-center justify-between mb-4">
                 <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium">
-                  {event.sport}
+                  Basketball
                 </span>
                 <span className="text-sm text-gray-500 dark:text-gray-400">
-                  {new Date(event.date).toLocaleDateString(undefined, {
+                  {new Date(event.status).toLocaleDateString(undefined, {
                     weekday: 'short',
                     month: 'short',
                     day: 'numeric',
@@ -126,11 +148,11 @@ export default function Home() {
               
               <div className="grid grid-cols-[1fr,auto,1fr] gap-4 items-center">
                 <button
-                  onClick={() => setSelectedBet({ event, team: 'team1' })}
+                  onClick={() => setSelectedBet({ event, team: 'home' })}
                   className="text-left p-4 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
                 >
                   <div className="font-semibold text-lg group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                    {event.team1}
+                    {event.home_team.full_name}
                   </div>
                   <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     50% chance
@@ -144,11 +166,11 @@ export default function Home() {
                 </div>
 
                 <button
-                  onClick={() => setSelectedBet({ event, team: 'team2' })}
+                  onClick={() => setSelectedBet({ event, team: 'visitor' })}
                   className="text-right p-4 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
                 >
                   <div className="font-semibold text-lg group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                    {event.team2}
+                    {event.visitor_team.full_name}
                   </div>
                   <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     50% chance
