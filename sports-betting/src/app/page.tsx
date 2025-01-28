@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { collection, getDocs, query, where, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Event } from '@/types/events';
+import Image from 'next/image';
 
 interface BettingModalProps {
   event: Event;
@@ -67,6 +68,35 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: string }) {
+  const [imageExists, setImageExists] = useState(true);
+
+  useEffect(() => {
+    // Check if image exists
+    fetch(`/logos/${abbreviation}.png`)
+      .then(res => {
+        if (!res.ok) {
+          setImageExists(false);
+        }
+      })
+      .catch(() => setImageExists(false));
+  }, [abbreviation]);
+
+  if (!imageExists) {
+    return null;
+  }
+
+  return (
+    <Image
+      src={`/logos/${abbreviation}.png`}
+      alt={`${teamName} logo`}
+      width={48}
+      height={48}
+      className="rounded-full"
+    />
   );
 }
 
@@ -151,11 +181,19 @@ export default function Home() {
                   onClick={() => setSelectedBet({ event, team: 'home' })}
                   className="text-left p-4 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
                 >
-                  <div className="font-semibold text-lg group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                    {event.home_team.full_name}
-                  </div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    50% chance
+                  <div className="flex items-center gap-4">
+                    <TeamLogo 
+                      abbreviation={event.home_team.abbreviation}
+                      teamName={event.home_team.full_name}
+                    />
+                    <div>
+                      <div className="font-semibold text-lg group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                        {event.home_team.full_name}
+                      </div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        50% chance
+                      </div>
+                    </div>
                   </div>
                 </button>
 
@@ -169,11 +207,19 @@ export default function Home() {
                   onClick={() => setSelectedBet({ event, team: 'visitor' })}
                   className="text-right p-4 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
                 >
-                  <div className="font-semibold text-lg group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                    {event.visitor_team.full_name}
-                  </div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    50% chance
+                  <div className="flex items-center justify-end gap-4">
+                    <div>
+                      <div className="font-semibold text-lg group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                        {event.visitor_team.full_name}
+                      </div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        50% chance
+                      </div>
+                    </div>
+                    <TeamLogo 
+                      abbreviation={event.visitor_team.abbreviation}
+                      teamName={event.visitor_team.full_name}
+                    />
                   </div>
                 </button>
               </div>
