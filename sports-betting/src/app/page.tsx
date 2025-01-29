@@ -1,12 +1,28 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { collection, getDocs, query, where, Timestamp, addDoc, updateDoc, doc, arrayUnion, getDoc, setDoc } from 'firebase/firestore';
+import { useState, useEffect, useRef } from 'react';
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  Timestamp,
+  orderBy,
+  limit,
+  startAfter,
+  addDoc,
+  updateDoc,
+  doc,
+  arrayUnion,
+  getDoc,
+  setDoc
+} from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Event } from '@/types/events';
 import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 
+/** --- The BettingModal remains unchanged --- **/
 interface BettingModalProps {
   event: Event;
   selectedTeam: 'home' | 'visitor';
@@ -18,7 +34,10 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
   const [showAuthAlert, setShowAuthAlert] = useState(false);
   const [isPlacingBet, setIsPlacingBet] = useState(false);
   const { user } = useAuth();
-  const teamName = selectedTeam === 'home' ? event.home_team.full_name : event.visitor_team.full_name;
+  const teamName =
+    selectedTeam === 'home'
+      ? event.home_team.full_name
+      : event.visitor_team.full_name;
   const numericAmount = Number(betAmount);
 
   const handleBet = async () => {
@@ -51,7 +70,7 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
       // Check if user document exists, if not create it
       const userDocRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);
-      
+
       if (!userDoc.exists()) {
         // Create new user document with initial trades array
         await setDoc(userDocRef, {
@@ -131,33 +150,20 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
   );
 }
 
+/** --- TeamLogo component unchanged --- **/
 function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: string }) {
   const [imageExists, setImageExists] = useState(true);
 
-  useEffect(() => {
-    // Check if image exists
-    fetch(`/logos/${abbreviation}.png`)
-      .then(res => {
-        if (!res.ok) {
-          setImageExists(false);
-        }
-      })
-      .catch(() => setImageExists(false));
-  }, [abbreviation]);
-
-  if (!imageExists) {
-    return null;
-  }
-
-  return (
+  return imageExists ? (
     <Image
       src={`/logos/${abbreviation}.png`}
       alt={`${teamName} logo`}
       width={48}
       height={48}
       className="rounded-full"
+      onError={() => setImageExists(false)}
     />
-  );
+  ) : null;
 }
 
 export default function Home() {
@@ -165,22 +171,59 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' } | null>(null);
 
-  useEffect(() => {
-    async function fetchEvents() {
-      try {
-        const eventsRef = collection(db, 'events');
-        // Get events that haven't happened yet
-        const q = query(
+  // For Firestore pagination
+  const [lastDoc, setLastDoc] = useState<any>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * Fetch the next batch of events (10 at a time).
+   */
+  const fetchEvents = async () => {
+    // console.log("Starting fetchEvents function");
+    // console.log("Current state:", { hasMore, lastDoc: !!lastDoc, isFetchingMore });
+    
+    if (!hasMore) {
+      console.log("No more events to fetch, returning early");
+      return;
+    }
+
+    setIsFetchingMore(true);
+
+    try {
+      //console.log("Building query with timestamp:", Timestamp.fromDate(new Date()).toDate());
+      const eventsRef = collection(db, 'events');
+      
+      let q: any = query(
+        eventsRef,
+        where('status', '>', new Date().toISOString()),
+        orderBy('status', 'asc'),
+        limit(10)
+      );
+
+      if (lastDoc) {
+        //console.log("Using pagination with lastDoc");
+        q = query(
           eventsRef,
-          where('status', '>', new Date().toISOString())
+          where('status', '>', new Date().toISOString()),
+          orderBy('status', 'asc'),
+          startAfter(lastDoc),
+          limit(10)
         );
-        const querySnapshot = await getDocs(q);
-        const eventsData: Event[] = [];
-        
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          eventsData.push({
-            id: doc.id,
+      }
+
+      //console.log("Executing Firestore query...");
+      const querySnapshot = await getDocs(q);
+      //console.log("Query complete. Documents found:", querySnapshot.size);
+      
+      if (!querySnapshot.empty) {
+        const newEvents: Event[] = querySnapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as Event;
+          //console.log("Processing document:", docSnap.id, data);
+          return {
+            id: docSnap.id,
             date: data.date,
             home_team: data.home_team,
             visitor_team: data.visitor_team,
@@ -191,22 +234,77 @@ export default function Home() {
             season: data.season,
             status: data.status,
             time: data.time,
-            updatedAt: data.updatedAt?.toDate() || new Date(),
-          } as Event);
+            updatedAt: data.updatedAt || new Date()
+          } as Event;
         });
 
-        // Sort by date
-        eventsData.sort((a, b) => new Date(a.status).getTime() - new Date(b.status).getTime());
-        setEvents(eventsData);
-      } catch (error) {
-        console.error('Error fetching events:', error);
-      } finally {
-        setLoading(false);
+        //console.log('Processed events:', newEvents.length);
+        //console.log('First event:', newEvents[0]);
+
+        setEvents((prev) => {
+          //console.log('Previous events count:', prev.length);
+          return [...prev, ...newEvents];
+        });
+        setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
+        
+        if (querySnapshot.size < 10) {
+          //console.log("Less than 10 documents returned, setting hasMore to false");
+          setHasMore(false);
+        }
+      } else {
+        //console.log("Query returned empty result");
+        setHasMore(false);
       }
+    } catch (error) {
+      //console.error('Error fetching events:', error);
+      // Log additional error details if available
+      if (error instanceof Error) {
+        // console.error('Error name:', error.name);
+        // console.error('Error message:', error.message);
+        // console.error('Error stack:', error.stack);
+      }
+    } finally {
+      //console.log("Fetch complete, setting loading states");
+      setIsFetchingMore(false);
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Fetch initial 10 events on mount
+   */
+  useEffect(() => {
+    fetchEvents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * Set up an IntersectionObserver on a sentinel <div> to trigger fetch for next events.
+   */
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // If the sentinel is intersecting and we're not already fetching and there's more data
+        if (entries[0].isIntersecting && !isFetchingMore && hasMore) {
+          fetchEvents();
+        }
+      },
+      {
+        threshold: 1.0
+      }
+    );
+
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current);
     }
 
-    fetchEvents();
-  }, []);
+    // Cleanup
+    return () => {
+      if (loadMoreRef.current) {
+        observer.unobserve(loadMoreRef.current);
+      }
+    };
+  }, [loadMoreRef, hasMore, isFetchingMore]);
 
   if (loading) {
     return (
@@ -223,6 +321,11 @@ export default function Home() {
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
       <h2 className="text-3xl font-bold mb-8">Available Events</h2>
+      {events.length === 0 && (
+        <p className="text-gray-600 dark:text-gray-300">
+          No upcoming events at the moment.
+        </p>
+      )}
       <div className="space-y-4">
         {events.map((event) => (
           <div
@@ -244,14 +347,14 @@ export default function Home() {
                   })}
                 </span>
               </div>
-              
+
               <div className="grid grid-cols-[1fr,auto,1fr] gap-4 items-center">
                 <button
                   onClick={() => setSelectedBet({ event, team: 'home' })}
                   className="text-left p-4 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
                 >
                   <div className="flex items-center gap-4">
-                    <TeamLogo 
+                    <TeamLogo
                       abbreviation={event.home_team.abbreviation}
                       teamName={event.home_team.full_name}
                     />
@@ -285,7 +388,7 @@ export default function Home() {
                         50% chance
                       </div>
                     </div>
-                    <TeamLogo 
+                    <TeamLogo
                       abbreviation={event.visitor_team.abbreviation}
                       teamName={event.visitor_team.full_name}
                     />
@@ -296,6 +399,16 @@ export default function Home() {
           </div>
         ))}
       </div>
+
+      {/* Sentinel div for intersection observer */}
+      {hasMore && (
+        <div
+          ref={loadMoreRef}
+          className="flex items-center justify-center py-6 text-gray-500 dark:text-gray-400"
+        >
+          {isFetchingMore && <span>Loading more events...</span>}
+        </div>
+      )}
 
       {selectedBet && (
         <BettingModal
