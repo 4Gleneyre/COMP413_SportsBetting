@@ -5,6 +5,7 @@ import { collection, getDocs, query, where, Timestamp } from 'firebase/firestore
 import { db } from '@/lib/firebase';
 import type { Event } from '@/types/events';
 import Image from 'next/image';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface BettingModalProps {
   event: Event;
@@ -14,10 +15,20 @@ interface BettingModalProps {
 
 function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
   const [betAmount, setBetAmount] = useState<string>('');
+  const [showAuthAlert, setShowAuthAlert] = useState(false);
+  const { user } = useAuth();
   const teamName = selectedTeam === 'home' ? event.home_team.full_name : event.visitor_team.full_name;
   const numericAmount = Number(betAmount);
 
   const handleBet = () => {
+    if (!user) {
+      setShowAuthAlert(true);
+      setTimeout(() => {
+        setShowAuthAlert(false);
+      }, 3000);
+      return;
+    }
+
     // In real app, this would interact with Firestore
     alert(`Bet placed: $${betAmount} on ${teamName}`);
     onClose();
@@ -39,7 +50,7 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
               min="0"
               value={betAmount}
               onChange={(e) => setBetAmount(e.target.value)}
-              className="w-full p-3 border rounded-lg bg-transparent"
+              className="w-full p-3 border rounded-lg bg-transparent text-white border-gray-600 focus:border-white focus:ring-1 focus:ring-white outline-none"
               placeholder="Enter amount"
             />
           </div>
@@ -48,6 +59,11 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
               <p className="text-sm text-green-600 dark:text-green-400">
                 Potential Payout: ${(numericAmount * 2).toFixed(2)}
               </p>
+            </div>
+          )}
+          {showAuthAlert && (
+            <div className="bg-destructive/15 text-destructive px-4 py-2 rounded-md text-sm">
+              You must be logged in to place a bet
             </div>
           )}
           <div className="flex gap-3">
@@ -120,8 +136,17 @@ export default function Home() {
         querySnapshot.forEach((doc) => {
           const data = doc.data();
           eventsData.push({
-            ...data,
             id: doc.id,
+            date: data.date,
+            home_team: data.home_team,
+            visitor_team: data.visitor_team,
+            home_team_score: data.home_team_score,
+            visitor_team_score: data.visitor_team_score,
+            period: data.period,
+            postseason: data.postseason,
+            season: data.season,
+            status: data.status,
+            time: data.time,
             updatedAt: data.updatedAt?.toDate() || new Date(),
           } as Event);
         });

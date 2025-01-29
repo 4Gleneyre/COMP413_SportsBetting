@@ -9,7 +9,7 @@ export interface Team {
 }
 
 export interface Event {
-  id: number;
+  id: string;
   date: string;
   home_team: Team;
   visitor_team: Team;
