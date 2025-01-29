@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Event } from '@/types/events';
@@ -10,7 +10,7 @@ import Image from 'next/image';
 interface Trade {
   id: string;
   amount: number;
-  createdAt: Date;
+  createdAt: Timestamp;
   eventId: string;
   selectedTeam: 'home' | 'visitor';
   status: string;
@@ -58,33 +58,53 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
 
+  // Add debug log for trades state changes
+  useEffect(() => {
+    console.log('Trades state updated:', trades);
+  }, [trades]);
+
   useEffect(() => {
     async function fetchTrades() {
       if (!user) {
+        console.log('No user found, skipping trade fetch');
         setLoading(false);
         return;
       }
 
       try {
+        console.log('Fetching trades for user:', user.uid);
+        
         // Get user document to get trade IDs
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (!userDoc.exists()) {
+          console.log('User document not found in Firestore');
           setLoading(false);
           return;
         }
 
         const userTrades = userDoc.data().trades || [];
+        console.log('Found trade IDs:', userTrades);
         
         // Fetch all trades
         const tradesData: Trade[] = [];
         for (const tradeId of userTrades) {
+          console.log('Fetching trade:', tradeId);
           const tradeDoc = await getDoc(doc(db, 'trades', tradeId));
+          
           if (tradeDoc.exists()) {
             const tradeData = tradeDoc.data() as Omit<Trade, 'id'>;
+            console.log('Trade data found:', tradeData);
             
             // Fetch associated event
+            console.log('Fetching event:', tradeData.eventId);
             const eventDoc = await getDoc(doc(db, 'events', tradeData.eventId));
             const eventData = eventDoc.exists() ? eventDoc.data() as Event : undefined;
+            
+            if (eventData) {
+              console.log('Event data found for trade');
+            } else {
+              console.log('No event data found for trade');
+            }
 
             tradesData.push({
               id: tradeDoc.id,
@@ -92,11 +112,14 @@ export default function ProfilePage() {
               createdAt: tradeData.createdAt,
               event: eventData
             });
+          } else {
+            console.log('Trade document not found:', tradeId);
           }
         }
 
+        console.log('Final trades data:', tradesData);
         // Sort trades by date (newest first)
-        tradesData.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        tradesData.sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime());
         setTrades(tradesData);
       } catch (error) {
         console.error('Error fetching trades:', error);
@@ -108,7 +131,9 @@ export default function ProfilePage() {
     fetchTrades();
   }, [user]);
 
+  // Add debug logs in the render logic
   if (!user) {
+    console.log('Rendering: No user view');
     return (
       <div className="max-w-3xl mx-auto py-8 px-4">
         <div className="text-center">
@@ -122,6 +147,7 @@ export default function ProfilePage() {
   }
 
   if (loading) {
+    console.log('Rendering: Loading view');
     return (
       <div className="max-w-3xl mx-auto py-8 px-4">
         <h2 className="text-2xl font-bold mb-8">Your Trade History</h2>
@@ -134,6 +160,8 @@ export default function ProfilePage() {
     );
   }
 
+  console.log('Rendering: Main view, trades length:', trades.length);
+  
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
       <div className="mb-8">
@@ -164,63 +192,66 @@ export default function ProfilePage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {trades.map((trade) => (
-            <div
-              key={trade.id}
-              className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  {trade.event && (
-                    <TeamLogo
-                      abbreviation={trade.selectedTeam === 'home' 
-                        ? trade.event.home_team.abbreviation 
-                        : trade.event.visitor_team.abbreviation}
-                      teamName={trade.selectedTeam === 'home'
-                        ? trade.event.home_team.full_name
-                        : trade.event.visitor_team.full_name}
-                    />
-                  )}
-                  <div>
-                    <p className="font-medium">
-                      {trade.event
-                        ? (trade.selectedTeam === 'home'
+          {trades.map((trade) => {
+            console.log('Rendering trade:', trade);
+            return (
+              <div
+                key={trade.id}
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    {trade.event && (
+                      <TeamLogo
+                        abbreviation={trade.selectedTeam === 'home' 
+                          ? trade.event.home_team.abbreviation 
+                          : trade.event.visitor_team.abbreviation}
+                        teamName={trade.selectedTeam === 'home'
                           ? trade.event.home_team.full_name
-                          : trade.event.visitor_team.full_name)
-                        : 'Unknown Team'}
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {trade.createdAt.toLocaleDateString(undefined, {
-                        weekday: 'short',
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit'
-                      })}
+                          : trade.event.visitor_team.full_name}
+                      />
+                    )}
+                    <div>
+                      <p className="font-medium">
+                        {trade.event
+                          ? (trade.selectedTeam === 'home'
+                            ? trade.event.home_team.full_name
+                            : trade.event.visitor_team.full_name)
+                          : 'Unknown Team'}
+                      </p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {trade.createdAt.toDate().toLocaleDateString(undefined, {
+                          weekday: 'short',
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold">{formatCurrency(trade.amount)}</p>
+                    <p className={`text-sm capitalize ${
+                      trade.status === 'pending' 
+                        ? 'text-yellow-600 dark:text-yellow-400'
+                        : trade.status === 'won'
+                        ? 'text-green-600 dark:text-green-400'
+                        : 'text-red-600 dark:text-red-400'
+                    }`}>
+                      {trade.status}
                     </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-semibold">{formatCurrency(trade.amount)}</p>
-                  <p className={`text-sm capitalize ${
-                    trade.status === 'pending' 
-                      ? 'text-yellow-600 dark:text-yellow-400'
-                      : trade.status === 'won'
-                      ? 'text-green-600 dark:text-green-400'
-                      : 'text-red-600 dark:text-red-400'
-                  }`}>
-                    {trade.status}
-                  </p>
-                </div>
+                {trade.event && (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    {trade.event.home_team.full_name} vs {trade.event.visitor_team.full_name}
+                  </div>
+                )}
               </div>
-              {trade.event && (
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  {trade.event.home_team.full_name} vs {trade.event.visitor_team.full_name}
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
