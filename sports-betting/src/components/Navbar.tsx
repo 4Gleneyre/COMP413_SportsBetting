@@ -9,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import Link from "next/link";
 
 export function Navbar() {
   const { user, signInWithGoogle, logout } = useAuth();
@@ -16,9 +17,28 @@ export function Navbar() {
   return (
     <header className="bg-gray-900 text-white p-4 shadow-md">
       <div className="container mx-auto flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Sports Betting</h1>
+        <Link href="/" className="text-2xl font-bold hover:text-gray-200 transition-colors">
+          Sports Betting
+        </Link>
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-6">
+          <nav className="hidden md:flex items-center gap-6">
+            <Link 
+              href="/" 
+              className="text-gray-300 hover:text-white transition-colors font-medium"
+            >
+              Events
+            </Link>
+            {user && (
+              <Link 
+                href="/profile" 
+                className="text-gray-300 hover:text-white transition-colors font-medium"
+              >
+                Profile
+              </Link>
+            )}
+          </nav>
+          
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -30,6 +50,11 @@ export function Navbar() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <Link href="/profile">
+                  <DropdownMenuItem className="cursor-pointer">
+                    Profile
+                  </DropdownMenuItem>
+                </Link>
                 <DropdownMenuItem className="cursor-pointer" onClick={logout}>
                   Log out
                 </DropdownMenuItem>
