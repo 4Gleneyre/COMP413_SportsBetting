@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, where, Timestamp, addDoc, updateDoc, doc, arrayUnion, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Event } from '@/types/events';
 import Image from 'next/image';
@@ -16,11 +16,12 @@ interface BettingModalProps {
 function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
   const [betAmount, setBetAmount] = useState<string>('');
   const [showAuthAlert, setShowAuthAlert] = useState(false);
+  const [isPlacingBet, setIsPlacingBet] = useState(false);
   const { user } = useAuth();
   const teamName = selectedTeam === 'home' ? event.home_team.full_name : event.visitor_team.full_name;
   const numericAmount = Number(betAmount);
 
-  const handleBet = () => {
+  const handleBet = async () => {
     if (!user) {
       setShowAuthAlert(true);
       setTimeout(() => {
@@ -29,9 +30,51 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
       return;
     }
 
-    // In real app, this would interact with Firestore
-    alert(`Bet placed: $${betAmount} on ${teamName}`);
-    onClose();
+    try {
+      setIsPlacingBet(true);
+
+      // Create the trade document
+      const tradeRef = await addDoc(collection(db, 'trades'), {
+        userId: user.uid,
+        eventId: event.id,
+        amount: numericAmount,
+        selectedTeam,
+        createdAt: Timestamp.now(),
+        status: 'pending' // Could be used later for trade status tracking
+      });
+
+      // Update the event document with the trade reference
+      await updateDoc(doc(db, 'events', event.id), {
+        trades: arrayUnion(tradeRef.id)
+      });
+
+      // Check if user document exists, if not create it
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
+      
+      if (!userDoc.exists()) {
+        // Create new user document with initial trades array
+        await setDoc(userDocRef, {
+          email: user.email,
+          displayName: user.displayName,
+          createdAt: Timestamp.now(),
+          trades: [tradeRef.id]
+        });
+      } else {
+        // Update existing user document
+        await updateDoc(userDocRef, {
+          trades: arrayUnion(tradeRef.id)
+        });
+      }
+
+      alert(`Bet placed successfully: $${betAmount} on ${teamName}`);
+      onClose();
+    } catch (error) {
+      console.error('Error placing bet:', error);
+      alert('Failed to place bet. Please try again.');
+    } finally {
+      setIsPlacingBet(false);
+    }
   };
 
   return (
@@ -62,7 +105,7 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
             </div>
           )}
           {showAuthAlert && (
-            <div className="bg-destructive/15 text-destructive px-4 py-2 rounded-md text-sm">
+            <div className="bg-red-500/10 dark:bg-red-500/20 border border-red-200/20 px-4 py-3 rounded-md text-sm text-red-600 dark:text-red-300">
               You must be logged in to place a bet
             </div>
           )}
@@ -70,13 +113,14 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
             <button
               className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={handleBet}
-              disabled={numericAmount <= 0}
+              disabled={numericAmount <= 0 || isPlacingBet}
             >
-              Place Bet
+              {isPlacingBet ? 'Placing Bet...' : 'Place Bet'}
             </button>
             <button
               className="px-4 py-2 border rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               onClick={onClose}
+              disabled={isPlacingBet}
             >
               Cancel
             </button>
