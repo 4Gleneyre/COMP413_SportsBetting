@@ -57,6 +57,7 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
         userId: user.uid,
         eventId: event.id,
         amount: numericAmount,
+        expectedPayout: numericAmount * 2,
         selectedTeam,
         createdAt: Timestamp.now(),
         status: 'pending' // Could be used later for trade status tracking

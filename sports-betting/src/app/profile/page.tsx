@@ -10,6 +10,7 @@ import Image from 'next/image';
 interface Trade {
   id: string;
   amount: number;
+  expectedPayout: number;
   createdAt: Timestamp;
   eventId: string;
   selectedTeam: 'home' | 'visitor';
@@ -197,22 +198,24 @@ export default function ProfilePage() {
             return (
               <div
                 key={trade.id}
-                className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4"
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
               >
                 <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-4">
                     {trade.event && (
-                      <TeamLogo
-                        abbreviation={trade.selectedTeam === 'home' 
-                          ? trade.event.home_team.abbreviation 
-                          : trade.event.visitor_team.abbreviation}
-                        teamName={trade.selectedTeam === 'home'
-                          ? trade.event.home_team.full_name
-                          : trade.event.visitor_team.full_name}
-                      />
+                      <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg">
+                        <TeamLogo
+                          abbreviation={trade.selectedTeam === 'home' 
+                            ? trade.event.home_team.abbreviation 
+                            : trade.event.visitor_team.abbreviation}
+                          teamName={trade.selectedTeam === 'home'
+                            ? trade.event.home_team.full_name
+                            : trade.event.visitor_team.full_name}
+                        />
+                      </div>
                     )}
                     <div>
-                      <p className="font-medium">
+                      <p className="font-medium text-lg">
                         {trade.event
                           ? (trade.selectedTeam === 'home'
                             ? trade.event.home_team.full_name
@@ -231,21 +234,32 @@ export default function ProfilePage() {
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-semibold">{formatCurrency(trade.amount)}</p>
-                    <p className={`text-sm capitalize ${
+                  <div className="text-right space-y-1">
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-500 dark:text-gray-400">Bet Amount:</span>
+                        <span className="font-semibold">{formatCurrency(trade.amount)}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-500 dark:text-gray-400">Expected Payout:</span>
+                        <span className="font-semibold text-green-600 dark:text-green-400">
+                          {formatCurrency(trade.expectedPayout)}
+                        </span>
+                      </div>
+                    </div>
+                    <p className={`text-sm font-medium px-3 py-1 rounded-full inline-block ${
                       trade.status === 'pending' 
-                        ? 'text-yellow-600 dark:text-yellow-400'
+                        ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
                         : trade.status === 'won'
-                        ? 'text-green-600 dark:text-green-400'
-                        : 'text-red-600 dark:text-red-400'
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                     }`}>
-                      {trade.status}
+                      {trade.status.charAt(0).toUpperCase() + trade.status.slice(1)}
                     </p>
                   </div>
                 </div>
                 {trade.event && (
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                  <div className="text-sm text-gray-500 dark:text-gray-400 mt-2 pt-2 border-t border-gray-100 dark:border-gray-700">
                     {trade.event.home_team.full_name} vs {trade.event.visitor_team.full_name}
                   </div>
                 )}
