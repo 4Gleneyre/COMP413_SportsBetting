@@ -22,7 +22,6 @@ import type { Event } from '@/types/events';
 import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 
-/** --- The BettingModal remains unchanged --- **/
 interface BettingModalProps {
   event: Event;
   selectedTeam: 'home' | 'visitor';
@@ -32,7 +31,9 @@ interface BettingModalProps {
 function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
   const [betAmount, setBetAmount] = useState<string>('');
   const [showAuthAlert, setShowAuthAlert] = useState(false);
+  const [showBalanceAlert, setShowBalanceAlert] = useState(false);
   const [isPlacingBet, setIsPlacingBet] = useState(false);
+  const [userBalance, setUserBalance] = useState<number | null>(null);
   const { user } = useAuth();
   const teamName =
     selectedTeam === 'home'
@@ -40,12 +41,32 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
       : event.visitor_team.full_name;
   const numericAmount = Number(betAmount);
 
+  // Fetch user's balance when modal opens
+  useEffect(() => {
+    async function fetchUserBalance() {
+      if (!user) return;
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
+      if (userDoc.exists()) {
+        setUserBalance(userDoc.data().balance || 0);
+      }
+    }
+    fetchUserBalance();
+  }, [user]);
+
   const handleBet = async () => {
     if (!user) {
       setShowAuthAlert(true);
       setTimeout(() => {
         setShowAuthAlert(false);
       }, 3000);
+      return;
+    }
+
+    // Check if user can afford the bet
+    if (userBalance === null || numericAmount > userBalance) {
+      setShowBalanceAlert(true);
+      setTimeout(() => setShowBalanceAlert(false), 3000);
       return;
     }
 
@@ -60,32 +81,32 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
         expectedPayout: numericAmount * 2,
         selectedTeam,
         createdAt: Timestamp.now(),
-        status: 'pending' // Could be used later for trade status tracking
+        status: 'pending'
       });
 
-      // Update the event document with the trade reference
-      await updateDoc(doc(db, 'events', event.id), {
-        trades: arrayUnion(tradeRef.id)
-      });
-
-      // Check if user document exists, if not create it
+      // Update user's balance
       const userDocRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);
 
       if (!userDoc.exists()) {
-        // Create new user document with initial trades array
         await setDoc(userDocRef, {
           email: user.email,
           displayName: user.displayName,
           createdAt: Timestamp.now(),
-          trades: [tradeRef.id]
+          trades: [tradeRef.id],
+          balance: -numericAmount
         });
       } else {
-        // Update existing user document
         await updateDoc(userDocRef, {
-          trades: arrayUnion(tradeRef.id)
+          trades: arrayUnion(tradeRef.id),
+          balance: (userDoc.data().balance || 0) - numericAmount
         });
       }
+
+      // Update the event document
+      await updateDoc(doc(db, 'events', event.id), {
+        trades: arrayUnion(tradeRef.id)
+      });
 
       alert(`Bet placed successfully: $${betAmount} on ${teamName}`);
       onClose();
@@ -102,6 +123,11 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
       <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4 shadow-xl">
         <h2 className="text-2xl font-bold mb-6">Place Your Bet</h2>
         <div className="space-y-6">
+          {userBalance !== null && (
+            <div className="text-sm text-gray-500 dark:text-gray-400">
+              Available Balance: ${userBalance.toFixed(2)}
+            </div>
+          )}
           <div>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Selected Team</p>
             <p className="text-lg font-semibold">{teamName}</p>
@@ -129,6 +155,11 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
               You must be logged in to place a bet
             </div>
           )}
+          {showBalanceAlert && (
+            <div className="bg-red-500/10 dark:bg-red-500/20 border border-red-200/20 px-4 py-3 rounded-md text-sm text-red-600 dark:text-red-300">
+              Insufficient balance to place this bet
+            </div>
+          )}
           <div className="flex gap-3">
             <button
               className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -151,7 +182,6 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
   );
 }
 
-/** --- TeamLogo component unchanged --- **/
 function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: string }) {
   const [imageExists, setImageExists] = useState(true);
 
