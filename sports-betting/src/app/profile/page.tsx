@@ -19,6 +19,11 @@ interface Trade {
   event?: Event;
 }
 
+interface UserData {
+  trades: string[];
+  walletBalance: number;
+}
+
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -57,6 +62,7 @@ function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: 
 export default function ProfilePage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
+  const [walletBalance, setWalletBalance] = useState(0);
   const { user } = useAuth();
 
   // Add debug log for trades state changes
@@ -65,17 +71,17 @@ export default function ProfilePage() {
   }, [trades]);
 
   useEffect(() => {
-    async function fetchTrades() {
+    async function fetchUserData() {
       if (!user) {
-        console.log('No user found, skipping trade fetch');
+        console.log('No user found, skipping data fetch');
         setLoading(false);
         return;
       }
 
       try {
-        console.log('Fetching trades for user:', user.uid);
+        console.log('Fetching user data for:', user.uid);
         
-        // Get user document to get trade IDs
+        // Get user document
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (!userDoc.exists()) {
           console.log('User document not found in Firestore');
@@ -83,7 +89,10 @@ export default function ProfilePage() {
           return;
         }
 
-        const userTrades = userDoc.data().trades || [];
+        const userData = userDoc.data() as UserData;
+        setWalletBalance(userData.walletBalance || 0);
+        
+        const userTrades = userData.trades || [];
         console.log('Found trade IDs:', userTrades);
         
         // Fetch all trades
@@ -123,13 +132,13 @@ export default function ProfilePage() {
         tradesData.sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime());
         setTrades(tradesData);
       } catch (error) {
-        console.error('Error fetching trades:', error);
+        console.error('Error fetching user data:', error);
       } finally {
         setLoading(false);
       }
     }
 
-    fetchTrades();
+    fetchUserData();
   }, [user]);
 
   // Add debug logs in the render logic
@@ -167,19 +176,30 @@ export default function ProfilePage() {
     <div className="max-w-3xl mx-auto py-8 px-4">
       <div className="mb-8">
         <h2 className="text-2xl font-bold">Your Profile</h2>
-        <div className="mt-4 flex items-center gap-4">
-          {user.photoURL && (
-            <Image
-              src={user.photoURL}
-              alt={user.displayName || 'User'}
-              width={64}
-              height={64}
-              className="rounded-full"
-            />
-          )}
-          <div>
-            <p className="text-lg font-semibold">{user.displayName}</p>
-            <p className="text-gray-500 dark:text-gray-400">{user.email}</p>
+        <div className="mt-4 flex items-start justify-between gap-6">
+          {/* User info section */}
+          <div className="flex items-center gap-4">
+            {user.photoURL && (
+              <Image
+                src={user.photoURL}
+                alt={user.displayName || 'User'}
+                width={64}
+                height={64}
+                className="rounded-full"
+              />
+            )}
+            <div>
+              <p className="text-lg font-semibold">{user.displayName}</p>
+              <p className="text-gray-500 dark:text-gray-400">{user.email}</p>
+            </div>
+          </div>
+          
+          {/* Wallet balance section - reduced vertical padding from p-6 to py-4 px-6 */}
+          <div className="bg-gradient-to-r from-green-500 to-emerald-600 dark:from-green-600 dark:to-emerald-700 py-4 px-6 rounded-xl shadow-lg min-w-[240px]">
+            <p className="text-sm text-green-50 dark:text-green-100">Available Balance</p>
+            <p className="text-3xl font-bold text-white mt-1">
+              {formatCurrency(walletBalance)}
+            </p>
           </div>
         </div>
       </div>
