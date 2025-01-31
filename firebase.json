@@ -1,7 +1,7 @@
 {
   "firestore": {
-    "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
+    "rules": "sports-betting/firestore.rules",
+    "indexes": "sports-betting/firestore.indexes.json"
   },
   "functions": [
     {
@@ -31,4 +31,4 @@
     },
     "singleProjectMode": true
   }
-}
+} 

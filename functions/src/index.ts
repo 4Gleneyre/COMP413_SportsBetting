@@ -69,3 +69,63 @@ export const getFutureNbaGames = onSchedule("every 6 hours", async (event) => {
     console.error("Error processing games:", error);
   }
 });
+
+export const updateRecentNbaGames = onSchedule("every 6 hours", async (event) => {
+  try {
+    const today = new Date();
+    const startDate = new Date(today);
+    startDate.setDate(today.getDate() - 1); // Get games from 1 day ago
+    const startDateString = startDate.toISOString().split("T")[0];
+    const endDateString = today.toISOString().split("T")[0];
+
+    let allGames: any[] = [];
+    let cursor: string | null = null;
+    let hasMore = true;
+
+    // Fetch all recent games with pagination
+    while (hasMore) {
+      const params: any = {
+        start_date: startDateString,
+        end_date: endDateString,
+        per_page: 100,
+      };
+
+      if (cursor) params.cursor = cursor;
+
+      const response = await api.nba.getGames(params);
+      allGames = [...allGames, ...response.data];
+      hasMore = !!response.meta?.next_cursor;
+      cursor = response.meta?.next_cursor?.toString() || null;
+    }
+
+    // Batch update Firestore documents
+    const batchSize = 500;
+    const batches = [];
+
+    for (let i = 0; i < allGames.length; i += batchSize) {
+      const batch = db.batch();
+      const chunk = allGames.slice(i, i + batchSize);
+
+      chunk.forEach((game) => {
+        const docRef = db.collection("events").doc(game.id.toString());
+        batch.set(
+          docRef,
+          {
+            ...game,
+            home_team: { ...game.home_team },
+            visitor_team: { ...game.visitor_team },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      });
+
+      batches.push(batch.commit());
+    }
+
+    await Promise.all(batches);
+    console.log(`Updated ${allGames.length} recent games successfully`);
+  } catch (error) {
+    console.error("Error updating recent games:", error);
+  }
+});
