@@ -48,7 +48,7 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
       const userDocRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);
       if (userDoc.exists()) {
-        setUserBalance(userDoc.data().balance || 0);
+        setUserBalance(userDoc.data().walletBalance || 0);
       }
     }
     fetchUserBalance();
