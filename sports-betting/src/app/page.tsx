@@ -81,7 +81,7 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
         expectedPayout: numericAmount * 2,
         selectedTeam,
         createdAt: Timestamp.now(),
-        status: 'pending'
+        status: 'Pending'
       });
 
       // Update user's balance

@@ -23,6 +23,7 @@
     "next": "14.0.4",
     "react": "^18",
     "react-dom": "^18",
+    "shadcn-ui": "^0.9.4",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7"
   },

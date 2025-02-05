@@ -146,6 +146,28 @@ function AddFundsModal({
   );
 }
 
+function formatDateTime(date: Date) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  }).format(date);
+}
+
+function formatFullDateTime(date: Date) {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  }).format(date);
+}
+
 export default function ProfilePage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
@@ -314,11 +336,11 @@ export default function ProfilePage() {
               <p className="text-sm font-medium">Trade Record</p>
               <p className="mt-1">
                 <span className="text-green-600 dark:text-green-400 font-bold text-lg">
-                  {trades.filter(t => t.status === 'won').length}W
+                  {trades.filter(t => t.status === 'Won').length}W
                 </span>
                 <span className="mx-2 text-gray-400">-</span>
                 <span className="text-red-600 dark:text-red-400 font-bold text-lg">
-                  {trades.filter(t => t.status === 'lost').length}L
+                  {trades.filter(t => t.status === 'Lost').length}L
                 </span>
               </p>
             </div>
@@ -341,83 +363,111 @@ export default function ProfilePage() {
 
       <h3 className="text-xl font-semibold mb-6">Trade History</h3>
       {trades.length === 0 ? (
-        <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-xl">
+        <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
           <p className="text-gray-500 dark:text-gray-400">
             You haven't placed any trades yet.
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-6">
           {trades.map((trade) => {
-            console.log('Rendering trade:', trade);
+            const eventDate = trade.event ? new Date(trade.event.date) : null;
             return (
               <div
                 key={trade.id}
-                className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 hover:border-gray-300 dark:hover:border-gray-600 transition-all hover:shadow-md"
               >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-4">
-                    {trade.event && (
-                      <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg">
-                        <TeamLogo
-                          abbreviation={trade.selectedTeam === 'home' 
-                            ? trade.event.home_team.abbreviation 
-                            : trade.event.visitor_team.abbreviation}
-                          teamName={trade.selectedTeam === 'home'
-                            ? trade.event.home_team.full_name
-                            : trade.event.visitor_team.full_name}
-                        />
+                <div className="flex flex-col md:flex-row md:items-center gap-6">
+                  {/* Team and Event Info */}
+                  <div className="flex-grow space-y-4">
+                    <div className="flex items-center gap-4">
+                      {trade.event && (
+                        <div className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
+                          <TeamLogo
+                            abbreviation={trade.selectedTeam === 'home' 
+                              ? trade.event.home_team.abbreviation 
+                              : trade.event.visitor_team.abbreviation}
+                            teamName={trade.selectedTeam === 'home'
+                              ? trade.event.home_team.full_name
+                              : trade.event.visitor_team.full_name}
+                          />
+                        </div>
+                      )}
+                      <div>
+                        <h3 className="text-lg font-semibold">
+                          {trade.event
+                            ? (trade.selectedTeam === 'home'
+                              ? trade.event.home_team.full_name
+                              : trade.event.visitor_team.full_name)
+                            : 'Unknown Team'}
+                        </h3>
+                        {trade.event && (
+                          <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                            vs {trade.selectedTeam === 'home'
+                              ? trade.event.visitor_team.full_name
+                              : trade.event.home_team.full_name}
+                          </p>
+                        )}
                       </div>
-                    )}
-                    <div>
-                      <p className="font-medium text-lg">
-                        {trade.event
-                          ? (trade.selectedTeam === 'home'
-                            ? trade.event.home_team.full_name
-                            : trade.event.visitor_team.full_name)
-                          : 'Unknown Team'}
-                      </p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {trade.createdAt.toDate().toLocaleDateString(undefined, {
-                          weekday: 'short',
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: 'numeric',
-                          minute: '2-digit'
-                        })}
-                      </p>
+                    </div>
+
+                    {/* Status Badge */}
+                    <div className="flex items-center gap-3">
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium inline-flex items-center gap-1.5 ${
+                        trade.status === 'Pending' 
+                          ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                          : trade.status === 'Won'
+                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                      }`}>
+                        {trade.status === 'Pending' && (
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        )}
+                        {trade.status === 'Won' && (
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        )}
+                        {trade.status === 'Lost' && (
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        )}
+                        {trade.status}
+                      </span>
+                    </div>
+
+                    {/* Dates */}
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <p className="text-gray-500 dark:text-gray-400">Trade placed</p>
+                        <p className="mt-1 font-medium">{formatFullDateTime(trade.createdAt.toDate())}</p>
+                      </div>
+                      {eventDate && (
+                        <div>
+                          <p className="text-gray-500 dark:text-gray-400">Event date</p>
+                          <p className="mt-1 font-medium">{formatFullDateTime(eventDate)}</p>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="text-right space-y-1">
-                    <div className="flex flex-col items-end gap-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-500 dark:text-gray-400">Bet Amount:</span>
-                        <span className="font-semibold">{formatCurrency(trade.amount)}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-500 dark:text-gray-400">Expected Payout:</span>
-                        <span className="font-semibold text-green-600 dark:text-green-400">
-                          {formatCurrency(trade.expectedPayout)}
-                        </span>
-                      </div>
+
+                  {/* Bet Details */}
+                  <div className="flex flex-col gap-3 min-w-[200px] bg-gray-50 dark:bg-gray-700/30 p-4 rounded-lg">
+                    <div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Bet Amount</p>
+                      <p className="text-lg font-semibold mt-1">{formatCurrency(trade.amount)}</p>
                     </div>
-                    <p className={`text-sm font-medium px-3 py-1 rounded-full inline-block ${
-                      trade.status === 'pending' 
-                        ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                        : trade.status === 'won'
-                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                    }`}>
-                      {trade.status.charAt(0).toUpperCase() + trade.status.slice(1)}
-                    </p>
+                    <div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Potential Payout</p>
+                      <p className="text-lg font-semibold text-green-600 dark:text-green-400 mt-1">
+                        {formatCurrency(trade.expectedPayout)}
+                      </p>
+                    </div>
                   </div>
                 </div>
-                {trade.event && (
-                  <div className="text-sm text-gray-500 dark:text-gray-400 mt-2 pt-2 border-t border-gray-100 dark:border-gray-700">
-                    {trade.event.home_team.full_name} vs {trade.event.visitor_team.full_name}
-                  </div>
-                )}
               </div>
             );
           })}
