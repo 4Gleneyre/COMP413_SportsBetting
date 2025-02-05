@@ -201,6 +201,8 @@ export default function Home() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' } | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedDate, setSelectedDate] = useState<string>('');
 
   // For Firestore pagination
   const [lastDoc, setLastDoc] = useState<any>(null);
@@ -209,93 +211,72 @@ export default function Home() {
 
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
+  // Reset pagination when filters change
+  useEffect(() => {
+    setEvents([]);
+    setLastDoc(null);
+    setHasMore(true);
+    fetchEvents();
+  }, [searchQuery, selectedDate]);
+
   /**
    * Fetch the next batch of events (10 at a time).
    */
   const fetchEvents = async () => {
-    // console.log("Starting fetchEvents function");
-    // console.log("Current state:", { hasMore, lastDoc: !!lastDoc, isFetchingMore });
-    
     if (!hasMore) {
-      console.log("No more events to fetch, returning early");
       return;
     }
 
     setIsFetchingMore(true);
 
     try {
-      //console.log("Building query with timestamp:", Timestamp.fromDate(new Date()).toDate());
       const eventsRef = collection(db, 'events');
+      let constraints: any[] = [orderBy('status', 'asc'), limit(10)];
       
-      let q: any = query(
-        eventsRef,
-        where('status', '>', new Date().toISOString()),
-        orderBy('status', 'asc'),
-        limit(10)
-      );
-
-      if (lastDoc) {
-        //console.log("Using pagination with lastDoc");
-        q = query(
-          eventsRef,
-          where('status', '>', new Date().toISOString()),
-          orderBy('status', 'asc'),
-          startAfter(lastDoc),
-          limit(10)
-        );
+      // Add date filter if selected
+      if (selectedDate) {
+        constraints.push(where('date', '==', selectedDate));
+      } else {
+        constraints.push(where('status', '>', new Date().toISOString()));
       }
 
-      //console.log("Executing Firestore query...");
+      // Add pagination if there's a last document
+      if (lastDoc) {
+        constraints.push(startAfter(lastDoc));
+      }
+
+      let q = query(eventsRef, ...constraints);
       const querySnapshot = await getDocs(q);
-      //console.log("Query complete. Documents found:", querySnapshot.size);
       
       if (!querySnapshot.empty) {
-        const newEvents: Event[] = querySnapshot.docs.map((docSnap) => {
-          const data = docSnap.data() as Event;
-          //console.log("Processing document:", docSnap.id, data);
-          return {
-            id: docSnap.id,
-            date: data.date,
-            home_team: data.home_team,
-            visitor_team: data.visitor_team,
-            home_team_score: data.home_team_score,
-            visitor_team_score: data.visitor_team_score,
-            period: data.period,
-            postseason: data.postseason,
-            season: data.season,
-            status: data.status,
-            time: data.time,
-            updatedAt: data.updatedAt || new Date()
-          } as Event;
-        });
+        let newEvents: Event[] = querySnapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data()
+        } as Event));
 
-        //console.log('Processed events:', newEvents.length);
-        //console.log('First event:', newEvents[0]);
+        // Apply search filter in memory if search query exists
+        if (searchQuery) {
+          const searchLower = searchQuery.toLowerCase();
+          newEvents = newEvents.filter(event => 
+            event.home_team.full_name.toLowerCase().includes(searchLower) ||
+            event.visitor_team.full_name.toLowerCase().includes(searchLower) ||
+            event.home_team.city.toLowerCase().includes(searchLower) ||
+            event.visitor_team.city.toLowerCase().includes(searchLower)
+          );
+        }
 
-        setEvents((prev) => {
-          //console.log('Previous events count:', prev.length);
-          return [...prev, ...newEvents];
-        });
+        setEvents(prev => [...prev, ...newEvents]);
         setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
         
         if (querySnapshot.size < 10) {
-          //console.log("Less than 10 documents returned, setting hasMore to false");
           setHasMore(false);
         }
       } else {
-        //console.log("Query returned empty result");
         setHasMore(false);
       }
     } catch (error) {
-      //console.error('Error fetching events:', error);
-      // Log additional error details if available
-      if (error instanceof Error) {
-        // console.error('Error name:', error.name);
-        // console.error('Error message:', error.message);
-        // console.error('Error stack:', error.stack);
-      }
+      console.error('Error fetching events:', error);
     } finally {
-      //console.log("Fetch complete, setting loading states");
       setIsFetchingMore(false);
       setLoading(false);
     }
@@ -352,9 +333,34 @@ export default function Home() {
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
       <h2 className="text-3xl font-bold mb-8">Available Events</h2>
-      {events.length === 0 && (
+      
+      {/* Search and Filter Controls */}
+      <div className="mb-6 space-y-4">
+        <div className="flex gap-4 flex-wrap">
+          <div className="flex-1 min-w-[200px]">
+            <input
+              type="text"
+              placeholder="Search teams..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full p-3 border rounded-lg bg-transparent dark:text-white border-gray-300 dark:border-gray-600 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400 outline-none"
+            />
+          </div>
+          <div className="flex-1 min-w-[200px]">
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="w-full p-3 border rounded-lg bg-transparent dark:text-white border-gray-300 dark:border-gray-600 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400 outline-none"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Events List */}
+      {events.length === 0 && !loading && (
         <p className="text-gray-600 dark:text-gray-300">
-          No upcoming events at the moment.
+          No upcoming events found.
         </p>
       )}
       <div className="space-y-4">
