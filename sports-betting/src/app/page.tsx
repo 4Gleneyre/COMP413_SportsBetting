@@ -94,12 +94,12 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
           displayName: user.displayName,
           createdAt: Timestamp.now(),
           trades: [tradeRef.id],
-          balance: -numericAmount
+          walletBalance: -numericAmount
         });
       } else {
         await updateDoc(userDocRef, {
           trades: arrayUnion(tradeRef.id),
-          balance: (userDoc.data().balance || 0) - numericAmount
+          walletBalance: (userDoc.data().walletBalance || 0) - numericAmount
         });
       }
 

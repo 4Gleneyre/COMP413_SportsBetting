@@ -98,7 +98,7 @@ export const updateRecentNbaGames = onSchedule("every 6 hours", async (event) =>
       cursor = response.meta?.next_cursor?.toString() || null;
     }
 
-    // Batch update Firestore documents
+    // Batch update Firestore event documents
     const batchSize = 500;
     const batches = [];
 
@@ -125,6 +125,61 @@ export const updateRecentNbaGames = onSchedule("every 6 hours", async (event) =>
 
     await Promise.all(batches);
     console.log(`Updated ${allGames.length} recent games successfully`);
+
+    // Process games that have now become Final
+    // (We assume that if there are pending trades for an event, they have not been processed yet.)
+    for (const game of allGames) {
+      if (game.status === "Final") {
+        // Query for pending trades associated with this event.
+        const tradesSnapshot = await db
+          .collection("trades")
+          .where("eventId", "==", game.id.toString())
+          .where("status", "==", "pending")
+          .get();
+
+        if (tradesSnapshot.empty) continue;
+
+        // Determine which team won.
+        // (Assumes no ties; if needed you can adjust the logic for ties.)
+        let winningTeam: "home" | "visitor" | null = null;
+        if (game.home_team_score > game.visitor_team_score) {
+          winningTeam = "home";
+        } else if (game.visitor_team_score > game.home_team_score) {
+          winningTeam = "visitor";
+        }
+
+        // Prepare a batch for updating trades and build an accumulator for winning payouts.
+        const tradeBatch = db.batch();
+        const userIncrements: { [userId: string]: number } = {};
+
+        tradesSnapshot.docs.forEach((tradeDoc) => {
+          const trade = tradeDoc.data();
+          let newStatus = "Lost";
+          if (winningTeam && trade.selectedTeam === winningTeam) {
+            newStatus = "Won";
+            // Accumulate the expected payout for the user.
+            if (trade.userId) {
+              userIncrements[trade.userId] =
+                (userIncrements[trade.userId] || 0) + (trade.expectedPayout || 0);
+            }
+          }
+          tradeBatch.update(tradeDoc.ref, { status: newStatus });
+        });
+
+        await tradeBatch.commit();
+
+        // Now update each winning user's walletBalance using FieldValue.increment.
+        // (This ensures that if a user wins multiple trades, the increments are summed.)
+        const userBatch = db.batch();
+        for (const [userId, incrementAmount] of Object.entries(userIncrements)) {
+          const userRef = db.collection("users").doc(userId);
+          userBatch.update(userRef, {
+            walletBalance: admin.firestore.FieldValue.increment(incrementAmount),
+          });
+        }
+        await userBatch.commit();
+      }
+    }
   } catch (error) {
     console.error("Error updating recent games:", error);
   }
