@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, where, doc, getDoc, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc, Timestamp, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Event } from '@/types/events';
@@ -59,11 +59,99 @@ function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: 
   );
 }
 
+function AddFundsModal({ 
+  isOpen, 
+  onClose, 
+  onAddFunds 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  onAddFunds: (amount: number) => Promise<void>;
+}) {
+  const [amount, setAmount] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setError('Please enter a valid amount');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      await onAddFunds(numAmount);
+      onClose();
+      setAmount('');
+    } catch (err) {
+      console.error('Error in modal while adding funds:', err);
+      setError('Failed to add funds. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-md w-full mx-4">
+        <h3 className="text-xl font-bold mb-4">Add Funds to Wallet</h3>
+        <form onSubmit={handleSubmit}>
+          <div className="mb-4">
+            <label htmlFor="amount" className="block text-sm font-medium mb-2">
+              Amount (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+              <input
+                type="number"
+                id="amount"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full pl-8 pr-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
+                placeholder="0.00"
+                step="0.01"
+                min="0"
+              />
+            </div>
+          </div>
+          {error && (
+            <p className="text-red-500 text-sm mb-4">{error}</p>
+          )}
+          <div className="flex gap-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50"
+            >
+              {isLoading ? 'Adding...' : 'Add Funds'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [walletBalance, setWalletBalance] = useState(0);
   const { user } = useAuth();
+  const [isAddFundsModalOpen, setIsAddFundsModalOpen] = useState(false);
 
   // Add debug log for trades state changes
   useEffect(() => {
@@ -141,6 +229,33 @@ export default function ProfilePage() {
     fetchUserData();
   }, [user]);
 
+  const handleAddFunds = async (amount: number) => {
+    if (!user) {
+      console.error('No user found when trying to add funds');
+      throw new Error('User not found');
+    }
+
+    try {
+      console.log('Adding funds:', amount, 'to user:', user.uid);
+      console.log('Current wallet balance:', walletBalance);
+      
+      const userRef = doc(db, 'users', user.uid);
+      const newBalance = walletBalance + amount;
+      
+      console.log('New balance will be:', newBalance);
+
+      await updateDoc(userRef, {
+        walletBalance: newBalance
+      });
+
+      console.log('Successfully updated wallet balance');
+      setWalletBalance(newBalance);
+    } catch (error) {
+      console.error('Error while adding funds:', error);
+      throw error; // Re-throw to be caught by the modal's error handler
+    }
+  };
+
   // Add debug logs in the render logic
   if (!user) {
     console.log('Rendering: No user view');
@@ -174,32 +289,52 @@ export default function ProfilePage() {
   
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold">Your Profile</h2>
-        <div className="mt-4 flex items-start justify-between gap-6">
-          {/* User info section */}
-          <div className="flex items-center gap-4">
-            {user.photoURL && (
-              <Image
-                src={user.photoURL}
-                alt={user.displayName || 'User'}
-                width={64}
-                height={64}
-                className="rounded-full"
-              />
-            )}
-            <div>
-              <p className="text-lg font-semibold">{user.displayName}</p>
-              <p className="text-gray-500 dark:text-gray-400">{user.email}</p>
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold mb-4">Your Profile</h2>
+
+        <div className="flex items-start justify-between gap-6">
+          <div>
+            <div className="flex items-center gap-4">
+              {user.photoURL && (
+                <Image
+                  src={user.photoURL}
+                  alt={user.displayName || 'User'}
+                  width={64}
+                  height={64}
+                  className="rounded-full"
+                />
+              )}
+              <div>
+                <p className="text-lg font-semibold">{user.displayName}</p>
+                <p className="text-gray-500 dark:text-gray-400">{user.email}</p>
+              </div>
+            </div>
+            
+            <div className="mt-4 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700 inline-block">
+              <p className="text-sm font-medium">Trade Record</p>
+              <p className="mt-1">
+                <span className="text-green-600 dark:text-green-400 font-bold text-lg">
+                  {trades.filter(t => t.status === 'won').length}W
+                </span>
+                <span className="mx-2 text-gray-400">-</span>
+                <span className="text-red-600 dark:text-red-400 font-bold text-lg">
+                  {trades.filter(t => t.status === 'lost').length}L
+                </span>
+              </p>
             </div>
           </div>
-          
-          {/* Wallet balance section - reduced vertical padding from p-6 to py-4 px-6 */}
+
           <div className="bg-gradient-to-r from-green-500 to-emerald-600 dark:from-green-600 dark:to-emerald-700 py-4 px-6 rounded-xl shadow-lg min-w-[240px]">
             <p className="text-sm text-green-50 dark:text-green-100">Available Balance</p>
             <p className="text-3xl font-bold text-white mt-1">
               {formatCurrency(walletBalance)}
             </p>
+            <button
+              onClick={() => setIsAddFundsModalOpen(true)}
+              className="mt-3 w-full px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm transition-colors"
+            >
+              Add Funds
+            </button>
           </div>
         </div>
       </div>
@@ -288,6 +423,12 @@ export default function ProfilePage() {
           })}
         </div>
       )}
+
+      <AddFundsModal
+        isOpen={isAddFundsModalOpen}
+        onClose={() => setIsAddFundsModalOpen(false)}
+        onAddFunds={handleAddFunds}
+      />
     </div>
   );
 } 
