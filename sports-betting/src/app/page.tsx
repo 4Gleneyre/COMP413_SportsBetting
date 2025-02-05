@@ -21,6 +21,8 @@ import { db } from '@/lib/firebase';
 import type { Event } from '@/types/events';
 import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 
 interface BettingModalProps {
   event: Event;
@@ -202,7 +204,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [filterDates, setFilterDates] = useState<[Date | null, Date | null]>([null, null]);
+  const [showFilterModal, setShowFilterModal] = useState(false);
 
   // For Firestore pagination
   const [lastDoc, setLastDoc] = useState<any>(null);
@@ -217,7 +220,7 @@ export default function Home() {
     setLastDoc(null);
     setHasMore(true);
     fetchEvents();
-  }, [searchQuery, selectedDate]);
+  }, [searchQuery, filterDates]);
 
   /**
    * Fetch the next batch of events (10 at a time).
@@ -237,9 +240,12 @@ export default function Home() {
         limit(10)
       ];
       
-      // Add date filter if selected
-      if (selectedDate) {
-        constraints.push(where('date', '==', selectedDate));
+      // Add date filter if a date range is selected
+      if (filterDates[0]) {
+        constraints.push(where('status', '>=', filterDates[0].toISOString()));
+        if (filterDates[1]) {
+          constraints.push(where('status', '<=', filterDates[1].toISOString()));
+        }
       } else {
         constraints.push(where('status', '>', new Date().toISOString()));
       }
@@ -345,25 +351,23 @@ export default function Home() {
       <h2 className="text-3xl font-bold mb-8">Available Events</h2>
       
       {/* Search and Filter Controls */}
-      <div className="mb-6 space-y-4">
-        <div className="flex gap-4 flex-wrap">
-          <div className="flex-1 min-w-[200px]">
-            <input
-              type="text"
-              placeholder="Search teams..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full p-3 border rounded-lg bg-transparent dark:text-white border-gray-300 dark:border-gray-600 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400 outline-none"
-            />
-          </div>
-          <div className="flex-1 min-w-[200px]">
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="w-full p-3 border rounded-lg bg-transparent dark:text-white border-gray-300 dark:border-gray-600 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400 outline-none"
-            />
-          </div>
+      <div className="mb-6">
+        <div className="flex">
+          <input
+            type="text"
+            placeholder="Search teams..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="flex-grow p-3 border border-gray-300 dark:border-gray-600 rounded-l-lg bg-transparent dark:text-white focus:border-blue-500 dark:focus:border-blue-400 focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400 outline-none"
+          />
+          <button
+            onClick={() => setShowFilterModal(true)}
+            className="p-3 border border-l-0 border-gray-300 dark:border-gray-600 rounded-r-lg bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${filterDates[0] || filterDates[1] ? 'text-blue-600' : 'text-gray-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L15 14.414V19a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4.586L3.293 6.707A1 1 0 013 6V4z" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -463,6 +467,40 @@ export default function Home() {
           selectedTeam={selectedBet.team}
           onClose={() => setSelectedBet(null)}
         />
+      )}
+
+      {showFilterModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black opacity-50" onClick={() => setShowFilterModal(false)}></div>
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg z-10 w-11/12 max-w-md">
+            <h2 className="text-2xl font-bold mb-4">Filters</h2>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Date Range</label>
+              <DatePicker
+                selected={filterDates[0]}
+                onChange={(update: [Date | null, Date | null]) => { setFilterDates(update); }}
+                startDate={filterDates[0]}
+                endDate={filterDates[1]}
+                selectsRange
+                inline
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                onClick={() => { setFilterDates([null, null]); setShowFilterModal(false); }}
+              >
+                Clear Filters
+              </button>
+              <button
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                onClick={() => setShowFilterModal(false)}
+              >
+                Apply Filters
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
