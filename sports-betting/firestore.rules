@@ -2,18 +2,56 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isValidTradeAmount(amount) {
+      let userData = getUserData();
+      return userData != null && userData.walletBalance >= amount;
+    }
+    
+    function isEventActive(eventId) {
+      let eventData = get(/databases/$(database)/documents/events/$(eventId)).data;
+      return eventData != null && eventData.status > request.time;
+    }
 
-    // This rule allows anyone with your Firestore database reference to view, edit,
-    // and delete all data in your Firestore database. It is useful for getting
-    // started, but it is configured to expire after 30 days because it
-    // leaves your app open to attackers. At that time, all client
-    // requests to your Firestore database will be denied.
-    //
-    // Make sure to write security rules for your app before that time, or else
-    // all client requests to your Firestore database will be denied until you Update
-    // your rules
-    match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2025, 2, 26);
+    // Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId);
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      // Only allow updates that don't directly modify walletBalance
+      allow update: if isSignedIn() && 
+                   request.auth.uid == userId && 
+                   !request.resource.data.diff(resource.data).affectedKeys().hasAny(['walletBalance']);
+    }
+
+    // Events collection
+    match /events/{eventId} {
+      allow read: if true;  // Anyone can read events
+      allow write: if false;  // Only backend can write events
+    }
+
+    // Trades collection
+    match /trades/{tradeId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || 
+        get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.trades.hasAny([tradeId])
+      );
+      
+      allow create: if isSignedIn() && 
+                   request.resource.data.userId == request.auth.uid &&
+                   isValidTradeAmount(request.resource.data.amount) &&
+                   isEventActive(request.resource.data.eventId) &&
+                   request.resource.data.status == 'Pending';
+                   
+      allow update: if false;  // Only backend can update trades
+      allow delete: if false;  // Trades cannot be deleted
     }
   }
 }

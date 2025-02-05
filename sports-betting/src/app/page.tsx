@@ -231,7 +231,11 @@ export default function Home() {
 
     try {
       const eventsRef = collection(db, 'events');
-      let constraints: any[] = [orderBy('status', 'asc'), limit(10)];
+      let constraints: any[] = [
+        orderBy('status', 'asc'),
+        orderBy('__name__', 'asc'),
+        limit(10)
+      ];
       
       // Add date filter if selected
       if (selectedDate) {
@@ -242,7 +246,7 @@ export default function Home() {
 
       // Add pagination if there's a last document
       if (lastDoc) {
-        constraints.push(startAfter(lastDoc));
+        constraints.push(startAfter(lastDoc.data().status, lastDoc.id));
       }
 
       let q = query(eventsRef, ...constraints);
@@ -265,7 +269,13 @@ export default function Home() {
           );
         }
 
-        setEvents(prev => [...prev, ...newEvents]);
+        setEvents(prev => {
+          // Filter out events that already exist in the current state
+          const newUniqueEvents = newEvents.filter(newEvent =>
+            !prev.some(existingEvent => existingEvent.id === newEvent.id)
+          );
+          return [...prev, ...newUniqueEvents];
+        });
         setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
         
         if (querySnapshot.size < 10) {
