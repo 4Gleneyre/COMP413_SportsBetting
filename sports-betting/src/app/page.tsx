@@ -206,8 +206,13 @@ export default function Home() {
   const [filterDates, setFilterDates] = useState<[Date | null, Date | null]>([null, null]);
   const [showFilterModal, setShowFilterModal] = useState(false);
 
+  // Add debug logging for filterDates
+  useEffect(() => {
+    console.log('filterDates changed:', filterDates);
+  }, [filterDates]);
+
   // For Firestore pagination
-  const [lastDoc, setLastDoc] = useState<any>(null);
+  const lastDocRef = useRef<any>(null);
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
 
@@ -215,9 +220,11 @@ export default function Home() {
 
   // Reset pagination when filters change
   useEffect(() => {
+    console.log('Filter dates changed - Resetting pagination');
+    console.log('Previous lastDoc:', lastDocRef.current ? { id: lastDocRef.current.id, date: lastDocRef.current.data().date } : null);
     setEvents([]);
-    setLastDoc(null);
     setHasMore(true);
+    lastDocRef.current = null;
     fetchEvents();
   }, [searchQuery, filterDates]);
 
@@ -225,6 +232,7 @@ export default function Home() {
    * Fetch the next batch of events (10 at a time).
    */
   const fetchEvents = async () => {
+    console.log('fetchEvents called - current lastDoc:', lastDocRef.current ? { id: lastDocRef.current.id, date: lastDocRef.current.data().date } : null);
     if (!hasMore) {
       return;
     }
@@ -234,25 +242,44 @@ export default function Home() {
     try {
       const eventsRef = collection(db, 'events');
       let constraints: any[] = [
-        orderBy('status', 'asc'),
+        orderBy('date', 'asc'),
         orderBy('__name__', 'asc'),
         limit(10)
       ];
       
       // Add date filter if a date range is selected
       if (filterDates[0]) {
-        constraints.push(where('status', '>=', filterDates[0].toISOString()));
+        const startDateStr = filterDates[0].toISOString().split('T')[0]; // Format: YYYY-MM-DD
+        constraints.push(where('date', '>=', startDateStr));
         if (filterDates[1]) {
-          constraints.push(where('status', '<=', filterDates[1].toISOString()));
+          const endDateStr = filterDates[1].toISOString().split('T')[0]; // Format: YYYY-MM-DD
+          constraints.push(where('date', '<=', endDateStr));
         }
       } else {
-        constraints.push(where('status', '>', new Date().toISOString()));
+        const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
+        constraints.push(where('date', '>=', today));
       }
 
       // Add pagination if there's a last document
-      if (lastDoc) {
-        constraints.push(startAfter(lastDoc.data().status, lastDoc.id));
+      if (lastDocRef.current) {
+        constraints.push(startAfter(lastDocRef.current.data().date, lastDocRef.current.id));
       }
+
+      // Debug logging
+      console.log('Query Debug Info:');
+      console.log('Events Reference:', {
+        path: eventsRef.path,
+        id: eventsRef.id,
+        type: eventsRef.type,
+      });
+      console.log('Constraints:', constraints.map(c => ({
+        type: c.type,
+        field: c.field,
+        value: c.value,
+        direction: c.direction, // for orderBy
+        limit: c.limit, // for limit
+      })));
+      console.log('Last Doc:', lastDocRef.current ? { id: lastDocRef.current.id, date: lastDocRef.current.data().date } : null);
 
       let q = query(eventsRef, ...constraints);
       const querySnapshot = await getDocs(q);
@@ -281,7 +308,7 @@ export default function Home() {
           );
           return [...prev, ...newUniqueEvents];
         });
-        setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
+        lastDocRef.current = querySnapshot.docs[querySnapshot.docs.length - 1];
         
         if (querySnapshot.size < 10) {
           setHasMore(false);
