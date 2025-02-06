@@ -21,8 +21,7 @@ import { db } from '@/lib/firebase';
 import type { Event } from '@/types/events';
 import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
-import DatePicker from 'react-datepicker';
-import 'react-datepicker/dist/react-datepicker.css';
+import DateRangePicker from '@/components/DateRangePicker';
 
 interface BettingModalProps {
   event: Event;
@@ -476,13 +475,10 @@ export default function Home() {
             <h2 className="text-2xl font-bold mb-4">Filters</h2>
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Date Range</label>
-              <DatePicker
-                selected={filterDates[0]}
-                onChange={(update: [Date | null, Date | null]) => { setFilterDates(update); }}
+              <DateRangePicker
                 startDate={filterDates[0]}
                 endDate={filterDates[1]}
-                selectsRange
-                inline
+                onChange={setFilterDates}
               />
             </div>
             <div className="flex justify-end gap-2">
