@@ -29,6 +29,12 @@ export function Navbar() {
             >
               Events
             </Link>
+            <Link 
+              href="/activity" 
+              className="text-gray-300 hover:text-white transition-colors font-medium"
+            >
+              Activity
+            </Link>
             {user && (
               <Link 
                 href="/profile" 
