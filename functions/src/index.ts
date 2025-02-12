@@ -134,7 +134,7 @@ export const updateRecentNbaGames = onSchedule("every 6 hours", async (event) =>
         const tradesSnapshot = await db
           .collection("trades")
           .where("eventId", "==", game.id.toString())
-          .where("status", "==", "pending")
+          .where("status", "==", "Pending")
           .get();
 
         if (tradesSnapshot.empty) continue;
