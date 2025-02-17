@@ -1,7 +1,7 @@
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { BalldontlieAPI } from "@balldontlie/sdk";
-
 admin.initializeApp();
 const db = admin.firestore();
 const api = new BalldontlieAPI({ apiKey: "066f0ce8-a61a-4aee-82c0-e902d6ad3a0a" });
@@ -183,4 +183,67 @@ export const updateRecentNbaGames = onSchedule("every 6 hours", async (event) =>
   } catch (error) {
     console.error("Error updating recent games:", error);
   }
+});
+
+export const placeBet = onCall({
+  region: 'us-central1',
+  maxInstances: 10,
+}, async (request) => {
+  // Ensure the user is authenticated.
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "User must be authenticated.");
+  }
+  
+  const uid = request.auth.uid;
+  const { eventId, betAmount, selectedTeam } = request.data;
+
+  // Validate required input.
+  if (!eventId || betAmount == null || !selectedTeam) {
+    throw new HttpsError("invalid-argument", "Missing required fields.");
+  }
+  if (typeof betAmount !== "number" || betAmount <= 0) {
+    throw new HttpsError("invalid-argument", "Bet amount must be a positive number.");
+  }
+
+  // Use a transaction for atomicity.
+  const userRef = db.collection("users").doc(uid);
+  return db.runTransaction(async (transaction) => {
+    const userDoc = await transaction.get(userRef);
+    if (!userDoc.exists) {
+      throw new HttpsError("not-found", "User document not found.");
+    }
+    const userData = userDoc.data();
+    const walletBalance = userData?.walletBalance || 0;
+
+    // Ensure the user has enough funds.
+    if (betAmount > walletBalance) {
+      throw new HttpsError("failed-precondition", "Insufficient balance.");
+    }
+
+    // Create the trade document.
+    const tradeRef = db.collection("trades").doc();
+    transaction.set(tradeRef, {
+      userId: uid,
+      eventId,
+      amount: betAmount,
+      expectedPayout: betAmount * 2,
+      selectedTeam,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      status: "Pending"
+    });
+
+    // Deduct the bet amount from the user's balance and add the trade ID.
+    transaction.update(userRef, {
+      walletBalance: walletBalance - betAmount,
+      trades: admin.firestore.FieldValue.arrayUnion(tradeRef.id)
+    });
+
+    // Update the event document with the new trade ID.
+    const eventRef = db.collection("events").doc(eventId);
+    transaction.update(eventRef, {
+      trades: admin.firestore.FieldValue.arrayUnion(tradeRef.id)
+    });
+
+    return { tradeId: tradeRef.id };
+  });
 });

@@ -17,11 +17,12 @@ import {
   getDoc,
   setDoc
 } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, functions } from '@/lib/firebase';
 import type { Event } from '@/types/events';
 import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 import DateRangePicker from '@/components/DateRangePicker';
+import { httpsCallable } from "firebase/functions";
 
 interface BettingModalProps {
   event: Event;
@@ -35,6 +36,7 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
   const [showBalanceAlert, setShowBalanceAlert] = useState(false);
   const [isPlacingBet, setIsPlacingBet] = useState(false);
   const [userBalance, setUserBalance] = useState<number | null>(null);
+  const placeBetFunction = httpsCallable(functions, "placeBet");
   const { user } = useAuth();
   const teamName =
     selectedTeam === 'home'
@@ -58,66 +60,37 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
   const handleBet = async () => {
     if (!user) {
       setShowAuthAlert(true);
-      setTimeout(() => {
-        setShowAuthAlert(false);
-      }, 3000);
+      setTimeout(() => setShowAuthAlert(false), 3000);
       return;
     }
-
+  
     // Check if user can afford the bet
     if (userBalance === null || numericAmount > userBalance) {
       setShowBalanceAlert(true);
       setTimeout(() => setShowBalanceAlert(false), 3000);
       return;
     }
-
+  
     try {
       setIsPlacingBet(true);
-
-      // Create the trade document
-      const tradeRef = await addDoc(collection(db, 'trades'), {
-        userId: user.uid,
+  
+      // Call the Cloud Function with the required parameters.
+      const result = await placeBetFunction({
         eventId: event.id,
-        amount: numericAmount,
-        expectedPayout: numericAmount * 2,
+        betAmount: numericAmount,
         selectedTeam,
-        createdAt: Timestamp.now(),
-        status: 'Pending'
       });
-
-      // Update user's balance
-      const userDocRef = doc(db, 'users', user.uid);
-      const userDoc = await getDoc(userDocRef);
-
-      if (!userDoc.exists()) {
-        await setDoc(userDocRef, {
-          email: user.email,
-          displayName: user.displayName,
-          createdAt: Timestamp.now(),
-          trades: [tradeRef.id],
-          walletBalance: -numericAmount
-        });
-      } else {
-        await updateDoc(userDocRef, {
-          trades: arrayUnion(tradeRef.id),
-          walletBalance: (userDoc.data().walletBalance || 0) - numericAmount
-        });
-      }
-
-      // Update the event document
-      await updateDoc(doc(db, 'events', event.id), {
-        trades: arrayUnion(tradeRef.id)
-      });
-
+  
+      // If successful, you can show a success message and close the modal.
       alert(`Bet placed successfully: $${betAmount} on ${teamName}`);
       onClose();
-    } catch (error) {
-      console.error('Error placing bet:', error);
-      alert('Failed to place bet. Please try again.');
+    } catch (error: any) {
+      console.error("Error placing bet:", error);
+      alert("Failed to place bet. Please try again.");
     } finally {
       setIsPlacingBet(false);
     }
-  };
+  };  
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center">
@@ -285,10 +258,10 @@ export default function Home() {
       const querySnapshot = await getDocs(q);
       
       if (!querySnapshot.empty) {
-        let newEvents: Event[] = querySnapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data()
-        } as Event));
+        let newEvents: Event[] = querySnapshot.docs.map((docSnap) => {
+          const { id, ...data } = docSnap.data();
+          return { id: docSnap.id, ...data } as Event;
+        });        
 
         // Apply search filter in memory if search query exists
         if (searchQuery) {
