@@ -247,3 +247,80 @@ export const placeBet = onCall({
     return { tradeId: tradeRef.id };
   });
 });
+
+export const getLatestActivity = onCall(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+  },
+  async (request) => {
+    // Ensure the user is authenticated.
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated.");
+    }
+
+    // Destructure pagination parameters from request.data.
+    const { pageSize, lastCreatedAt } = request.data;
+    const effectivePageSize =
+      typeof pageSize === "number" && pageSize > 0 ? pageSize : 15;
+
+    // Create a query for the trades collection ordered by createdAt descending.
+    let tradesQuery = admin
+      .firestore()
+      .collection("trades")
+      .orderBy("createdAt", "desc")
+      .limit(effectivePageSize);
+
+    // If a lastCreatedAt cursor is provided, start after that timestamp.
+    if (lastCreatedAt) {
+      // Assumes lastCreatedAt is a millisecond timestamp.
+      const lastTimestamp = admin.firestore.Timestamp.fromMillis(lastCreatedAt);
+      tradesQuery = tradesQuery.startAfter(lastTimestamp);
+    }
+
+    try {
+      const tradesSnapshot = await tradesQuery.get();
+
+      // Process each trade document.
+      const trades = await Promise.all(
+        tradesSnapshot.docs.map(async (doc) => {
+          const tradeData = doc.data();
+
+          // Preserve the userId temporarily for fetching user data.
+          const rawUserId = tradeData.userId;
+          // Remove the sensitive userId field from the trade data.
+          delete tradeData.userId;
+
+          // Fetch associated event details.
+          let eventData = null;
+          if (tradeData.eventId) {
+            const eventDoc = await admin.firestore().collection("events").doc(tradeData.eventId).get();
+            eventData = eventDoc.exists ? eventDoc.data() : null;
+          }
+
+          // Fetch user details but only expose the displayName.
+          let userData = null;
+          if (rawUserId) {
+            const userDoc = await admin.firestore().collection("users").doc(rawUserId).get();
+            if (userDoc.exists) {
+              const { displayName } = userDoc.data() || {};
+              userData = { displayName };
+            }
+          }
+
+          return {
+            id: doc.id,
+            ...tradeData,
+            event: eventData,
+            user: userData,
+          };
+        })
+      );
+
+      return { trades };
+    } catch (error) {
+      console.error("Error fetching latest activity:", error);
+      throw new HttpsError("internal", "Error fetching latest activity");
+    }
+  }
+);

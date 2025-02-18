@@ -1,9 +1,9 @@
 'use client';
 
 import { useAuth } from "@/contexts/AuthContext";
-import { useEffect, useState } from "react";
-import { collection, query, where, orderBy, getDocs } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "@/lib/firebase";
 
 interface Trade {
   id: string;
@@ -12,11 +12,6 @@ interface Trade {
   selectedTeam: 'home' | 'visitor';
   status: string;
   createdAt: any;
-  eventId: string;
-  userId: string;
-  user?: {
-    displayName: string;
-  };
   event?: {
     home_team: {
       full_name: string;
@@ -25,60 +20,82 @@ interface Trade {
       full_name: string;
     };
   };
+  user?: {
+    displayName: string;
+  };
 }
+
+const PAGE_SIZE = 15;
 
 export default function ActivityPage() {
   const { user } = useAuth();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function fetchTrades() {
-      try {
-        // Query all trades, ordered by creation date
-        const tradesQuery = query(
-          collection(db, 'trades'),
-          orderBy('createdAt', 'desc')
-        );
-
-        const tradesSnapshot = await getDocs(tradesQuery);
-        const tradesData: Trade[] = [];
-
-        // Fetch associated event and user data for each trade
-        for (const tradeDoc of tradesSnapshot.docs) {
-          const tradeData = tradeDoc.data() as Trade;
-          
-          // Fetch event details
-          const eventDoc = await getDocs(query(
-            collection(db, 'events'),
-            where('__name__', '==', tradeData.eventId)
-          ));
-
-          // Fetch user details
-          const userDoc = await getDocs(query(
-            collection(db, 'users'),
-            where('__name__', '==', tradeData.userId)
-          ));
-          tradesData.push({
-            ...tradeData,
-            id: tradeDoc.id,
-            event: eventDoc.docs[0]?.data() as {
-              home_team: { full_name: string };
-              visitor_team: { full_name: string };
-            },
-            user: userDoc.docs[0]?.data() as { displayName: string }
-          });
-        }
-
-        setTrades(tradesData);
-      } catch (error) {
-        console.error('Error fetching trades:', error);
-      } finally {
-        setLoading(false);
-      }
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const lastCreatedAtRef = useRef<number | null>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const lastTradeElementRef = useCallback((node: HTMLDivElement | null) => {
+    if (loadingMore) return;
+    
+    if (observerRef.current) {
+      observerRef.current.disconnect();
     }
 
-    fetchTrades();
+    observerRef.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMore) {
+        loadMoreTrades();
+      }
+    });
+
+    if (node) {
+      observerRef.current.observe(node);
+    }
+  }, [loadingMore, hasMore]);
+
+  const getLatestActivity = httpsCallable(functions, 'getLatestActivity');
+
+  const loadTrades = async (isInitial = false) => {
+    try {
+      const response = await getLatestActivity({
+        pageSize: PAGE_SIZE,
+        lastCreatedAt: isInitial ? null : lastCreatedAtRef.current
+      });
+      
+      const result = response.data as { trades: Trade[] };
+      const newTrades = result.trades;
+
+      if (newTrades.length < PAGE_SIZE) {
+        setHasMore(false);
+      }
+
+      if (newTrades.length > 0) {
+        lastCreatedAtRef.current = new Date(newTrades[newTrades.length - 1].createdAt.seconds * 1000).getTime();
+      }
+
+      if (isInitial) {
+        setTrades(newTrades);
+      } else {
+        setTrades(prev => [...prev, ...newTrades]);
+      }
+    } catch (error) {
+      console.error('Error fetching trades:', error);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  const loadMoreTrades = () => {
+    if (!loadingMore && hasMore) {
+      setLoadingMore(true);
+      loadTrades();
+    }
+  };
+
+  useEffect(() => {
+    setLoading(true);
+    loadTrades(true);
   }, []);
 
   if (loading) {
@@ -104,9 +121,10 @@ export default function ActivityPage() {
         </p>
       ) : (
         <div className="space-y-4">
-          {trades.map((trade) => (
+          {trades.map((trade, index) => (
             <div
               key={trade.id}
+              ref={index === trades.length - 1 ? lastTradeElementRef : null}
               className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4"
             >
               <div className="flex justify-between items-start mb-3">
@@ -123,7 +141,6 @@ export default function ActivityPage() {
                   </p>
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                     Placed by {trade.user?.displayName || 'Anonymous'}
-                    {trade.userId === user?.uid && ' (You)'}
                   </p>
                 </div>
                 <div className="text-right">
@@ -147,7 +164,7 @@ export default function ActivityPage() {
                 </span>
               </div>
               <div className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-                {trade.createdAt.toDate().toLocaleDateString(undefined, {
+                {new Date(trade.createdAt.seconds * 1000).toLocaleDateString(undefined, {
                   weekday: 'long',
                   year: 'numeric',
                   month: 'long',
@@ -158,6 +175,13 @@ export default function ActivityPage() {
               </div>
             </div>
           ))}
+          {loadingMore && (
+            <div className="animate-pulse space-y-4">
+              {[1, 2].map((i) => (
+                <div key={`loading-${i}`} className="h-24 bg-gray-200 dark:bg-gray-700 rounded-xl" />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
