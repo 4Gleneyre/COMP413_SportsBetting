@@ -298,21 +298,10 @@ export const getLatestActivity = onCall(
             eventData = eventDoc.exists ? eventDoc.data() : null;
           }
 
-          // Fetch user details but only expose the displayName.
-          let userData = null;
-          if (rawUserId) {
-            const userDoc = await admin.firestore().collection("users").doc(rawUserId).get();
-            if (userDoc.exists) {
-              const { displayName } = userDoc.data() || {};
-              userData = { displayName };
-            }
-          }
-
           return {
             id: doc.id,
             ...tradeData,
             event: eventData,
-            user: userData,
           };
         })
       );

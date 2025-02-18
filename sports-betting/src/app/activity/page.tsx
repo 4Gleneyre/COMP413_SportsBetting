@@ -20,9 +20,6 @@ interface Trade {
       full_name: string;
     };
   };
-  user?: {
-    displayName: string;
-  };
 }
 
 const PAGE_SIZE = 15;
@@ -140,7 +137,14 @@ export default function ActivityPage() {
                       : trade.event?.home_team.full_name}
                   </p>
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                    Placed by {trade.user?.displayName || 'Anonymous'}
+                    {new Date(trade.createdAt.seconds * 1000).toLocaleDateString(undefined, {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
                   </p>
                 </div>
                 <div className="text-right">
@@ -162,16 +166,6 @@ export default function ActivityPage() {
                 <span className="text-gray-500 dark:text-gray-400">
                   Potential Payout: ${trade.expectedPayout}
                 </span>
-              </div>
-              <div className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-                {new Date(trade.createdAt.seconds * 1000).toLocaleDateString(undefined, {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })}
               </div>
             </div>
           ))}
