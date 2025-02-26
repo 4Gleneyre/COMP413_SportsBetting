@@ -86,6 +86,12 @@ function AddFundsModal({
       return;
     }
 
+    if (numAmount > 1000) {
+      setError('Maximum amount allowed is $1,000');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       await onAddFunds(numAmount);
       onClose();
@@ -105,7 +111,7 @@ function AddFundsModal({
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
             <label htmlFor="amount" className="block text-sm font-medium mb-2">
-              Amount (USD)
+              Amount (USD) - Max $1,000
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
@@ -118,6 +124,7 @@ function AddFundsModal({
                 placeholder="0.00"
                 step="0.01"
                 min="0"
+                max="1000"
               />
             </div>
           </div>
