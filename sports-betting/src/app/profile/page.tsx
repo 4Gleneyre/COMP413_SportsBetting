@@ -62,11 +62,13 @@ function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: 
 function AddFundsModal({ 
   isOpen, 
   onClose, 
-  onAddFunds 
+  onAddFunds,
+  currentBalance 
 }: { 
   isOpen: boolean; 
   onClose: () => void; 
   onAddFunds: (amount: number) => Promise<void>;
+  currentBalance: number;
 }) {
   const [amount, setAmount] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -92,6 +94,13 @@ function AddFundsModal({
       return;
     }
 
+    const newTotal = currentBalance + numAmount;
+    if (newTotal > 10000) {
+      setError('Total balance cannot exceed $10,000');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       await onAddFunds(numAmount);
       onClose();
@@ -104,6 +113,8 @@ function AddFundsModal({
     }
   };
 
+  const maxAllowedDeposit = Math.min(1000, 10000 - currentBalance);
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-md w-full mx-4">
@@ -111,7 +122,7 @@ function AddFundsModal({
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
             <label htmlFor="amount" className="block text-sm font-medium mb-2">
-              Amount (USD) - Max $1,000
+              Amount (USD) - Max ${maxAllowedDeposit.toFixed(2)}
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
@@ -124,9 +135,12 @@ function AddFundsModal({
                 placeholder="0.00"
                 step="0.01"
                 min="0"
-                max="1000"
+                max={maxAllowedDeposit}
               />
             </div>
+            <p className="text-sm text-gray-500 mt-2">
+              Current balance: ${currentBalance.toFixed(2)}
+            </p>
           </div>
           {error && (
             <p className="text-red-500 text-sm mb-4">{error}</p>
@@ -141,7 +155,7 @@ function AddFundsModal({
             </button>
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || maxAllowedDeposit <= 0}
               className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50"
             >
               {isLoading ? 'Adding...' : 'Add Funds'}
@@ -339,17 +353,45 @@ export default function ProfilePage() {
               </div>
             </div>
             
-            <div className="mt-4 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700 inline-block">
-              <p className="text-sm font-medium">Trade Record</p>
-              <p className="mt-1">
-                <span className="text-green-600 dark:text-green-400 font-bold text-lg">
-                  {trades.filter(t => t.status === 'Won').length}W
-                </span>
-                <span className="mx-2 text-gray-400">-</span>
-                <span className="text-red-600 dark:text-red-400 font-bold text-lg">
-                  {trades.filter(t => t.status === 'Lost').length}L
-                </span>
-              </p>
+            <div className="mt-4 flex gap-4">
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                <p className="text-sm font-medium">Trade Record</p>
+                <p className="mt-1">
+                  <span className="text-green-600 dark:text-green-400 font-bold text-lg">
+                    {trades.filter(t => t.status === 'Won').length}W
+                  </span>
+                  <span className="mx-2 text-gray-400">-</span>
+                  <span className="text-red-600 dark:text-red-400 font-bold text-lg">
+                    {trades.filter(t => t.status === 'Lost').length}L
+                  </span>
+                </p>
+              </div>
+
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                <p className="text-sm font-medium">Lifetime P&L</p>
+                <p className="mt-1">
+                  {(() => {
+                    const pnl = trades.reduce((total, trade) => {
+                      if (trade.status === 'Won') {
+                        return total + (trade.expectedPayout - trade.amount);
+                      } else if (trade.status === 'Lost') {
+                        return total - trade.amount;
+                      }
+                      return total;
+                    }, 0);
+                    
+                    return (
+                      <span className={`font-bold text-lg ${
+                        pnl > 0 ? 'text-green-600 dark:text-green-400'
+                        : pnl === 0 ? 'text-blue-600 dark:text-blue-400'
+                        : 'text-red-600 dark:text-red-400'
+                      }`}>
+                        {formatCurrency(pnl)}
+                      </span>
+                    );
+                  })()}
+                </p>
+              </div>
             </div>
           </div>
 
@@ -485,6 +527,7 @@ export default function ProfilePage() {
         isOpen={isAddFundsModalOpen}
         onClose={() => setIsAddFundsModalOpen(false)}
         onAddFunds={handleAddFunds}
+        currentBalance={walletBalance}
       />
     </div>
   );

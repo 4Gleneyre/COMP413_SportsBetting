@@ -10,9 +10,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import Link from "next/link";
+import { usePathname } from 'next/navigation';
 
 export function Navbar() {
   const { user, signInWithGoogle, logout } = useAuth();
+  const pathname = usePathname();
+
+  const getLinkClassName = (path: string) => {
+    return `${
+      pathname === path ? 'text-white font-bold' : 'text-gray-300'
+    } hover:text-white transition-colors font-medium`;
+  };
 
   return (
     <header className="bg-gray-900 text-white p-4 shadow-md">
@@ -25,20 +33,20 @@ export function Navbar() {
           <nav className="hidden md:flex items-center gap-6">
             <Link 
               href="/" 
-              className="text-gray-300 hover:text-white transition-colors font-medium"
+              className={getLinkClassName('/')}
             >
               Events
             </Link>
             <Link 
               href="/activity" 
-              className="text-gray-300 hover:text-white transition-colors font-medium"
+              className={getLinkClassName('/activity')}
             >
               Activity
             </Link>
             {user && (
               <Link 
                 href="/profile" 
-                className="text-gray-300 hover:text-white transition-colors font-medium"
+                className={getLinkClassName('/profile')}
               >
                 Profile
               </Link>
@@ -61,6 +69,12 @@ export function Navbar() {
                     Profile
                   </DropdownMenuItem>
                 </Link>
+                <DropdownMenuItem className="cursor-pointer">
+                  Privacy Policy
+                </DropdownMenuItem>
+                <DropdownMenuItem className="cursor-pointer">
+                  Terms & Conditions
+                </DropdownMenuItem>
                 <DropdownMenuItem className="cursor-pointer" onClick={logout}>
                   Log out
                 </DropdownMenuItem>
