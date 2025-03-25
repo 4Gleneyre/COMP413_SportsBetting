@@ -4,6 +4,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { BalldontlieAPI } from "@balldontlie/sdk";
 import OpenAI from "openai";
 import * as dotenv from "dotenv";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Load environment variables from .env file
 dotenv.config();
@@ -11,6 +12,72 @@ dotenv.config();
 admin.initializeApp();
 const db = admin.firestore();
 const api = new BalldontlieAPI({ apiKey: "066f0ce8-a61a-4aee-82c0-e902d6ad3a0a" });
+
+// Initialize the Google Generative AI client
+const geminiApiKey = process.env.GEMINI_API_KEY || "";
+const genAI = new GoogleGenerativeAI(geminiApiKey);
+
+/**
+ * Gets AI-predicted odds for a basketball game using Gemini
+ * @param homeTeam The home team data
+ * @param visitorTeam The visitor team data
+ * @returns Promise resolving to an object with home and visitor team winning percentages
+ */
+async function getPredictedOdds(homeTeam: any, visitorTeam: any) {
+  try {
+    // Default odds in case the AI call fails
+    const defaultOdds = { homeTeamOdds: 50, visitorTeamOdds: 50 };
+    
+    if (!geminiApiKey) {
+      console.warn("GEMINI_API_KEY not configured. Using default odds.");
+      return defaultOdds;
+    }
+    
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.0-flash",
+    });
+    
+    // Create a prompt with relevant team information
+    const prompt = `Predict the probability of each team winning in the upcoming NBA game:
+    
+    Home Team: ${homeTeam.full_name} (${homeTeam.abbreviation})
+    Away Team: ${visitorTeam.full_name} (${visitorTeam.abbreviation})
+    
+    Based on team statistics, recent performance, and historical matchups, what is the probability that each team will win?
+    Return the percentage chance for each team as JSON with the following fields:
+    - team-1-winning: percentage chance the home team wins (as a number)
+    - team-2-winning: percentage chance the visitor team wins (as a number)
+    The percentages should add up to 100%.`;
+    
+    // Generate content with structured output
+    const response = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.2,
+        responseMimeType: "application/json",
+      },
+    });
+    
+    const result = response.response.text();
+    // Parse the JSON response
+    const odds = JSON.parse(result);
+    
+    // Validate that the odds add up to approximately 100%
+    const total = odds["team-1-winning"] + odds["team-2-winning"];
+    if (total < 95 || total > 105) {
+      console.warn(`Odd percentages don't sum close to 100% (${total}%). Using default odds.`);
+      return defaultOdds;
+    }
+    
+    return {
+      homeTeamOdds: odds["team-1-winning"],
+      visitorTeamOdds: odds["team-2-winning"]
+    };
+  } catch (error) {
+    console.error("Error getting predicted odds from Gemini:", error);
+    return { homeTeamOdds: 50, visitorTeamOdds: 50 };
+  }
+}
 
 export const getFutureNbaGames = onSchedule("every 6 hours", async (event) => {
   try {
@@ -47,7 +114,11 @@ export const getFutureNbaGames = onSchedule("every 6 hours", async (event) => {
       const batch = db.batch();
       const chunk = allGames.slice(i, i + batchSize);
 
-      chunk.forEach((game) => {
+      // Process each game in the chunk, getting AI predictions for odds
+      for (const game of chunk) {
+        // Get AI-predicted odds for this game
+        const predictedOdds = await getPredictedOdds(game.home_team, game.visitor_team);
+        
         const docRef = db.collection("events").doc(game.id.toString());
         // Set with merge: true to update existing documents
         batch.set(
@@ -57,9 +128,9 @@ export const getFutureNbaGames = onSchedule("every 6 hours", async (event) => {
             // Convert nested objects to Firestore-friendly format if needed
             home_team: { ...game.home_team },
             visitor_team: { ...game.visitor_team },
-            // Add default odds fields
-            homeTeamCurrentOdds: 50,
-            visitorTeamCurrentOdds: 50,
+            // Use AI-predicted odds instead of default 50-50
+            homeTeamCurrentOdds: predictedOdds.homeTeamOdds,
+            visitorTeamCurrentOdds: predictedOdds.visitorTeamOdds,
             // Add timestamps if desired
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
@@ -70,10 +141,11 @@ export const getFutureNbaGames = onSchedule("every 6 hours", async (event) => {
         const oddsHistoryRef = docRef.collection("oddsHistory").doc();
         batch.set(oddsHistoryRef, {
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
-          homeTeamOdds: 50,
-          visitorTeamOdds: 50
+          homeTeamOdds: predictedOdds.homeTeamOdds,
+          visitorTeamOdds: predictedOdds.visitorTeamOdds,
+          source: "gemini-ai"
         });
-      });
+      }
 
       batches.push(batch.commit());
     }
@@ -81,7 +153,7 @@ export const getFutureNbaGames = onSchedule("every 6 hours", async (event) => {
     // Execute all batches
     await Promise.all(batches);
 
-    console.log(`${allGames.length} games processed successfully`);
+    console.log(`${allGames.length} games processed successfully with AI-predicted odds`);
   } catch (error) {
     console.error("Error processing games:", error);
   }
