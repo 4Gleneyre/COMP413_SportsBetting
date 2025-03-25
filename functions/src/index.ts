@@ -57,11 +57,22 @@ export const getFutureNbaGames = onSchedule("every 6 hours", async (event) => {
             // Convert nested objects to Firestore-friendly format if needed
             home_team: { ...game.home_team },
             visitor_team: { ...game.visitor_team },
+            // Add default odds fields
+            homeTeamCurrentOdds: 50,
+            visitorTeamCurrentOdds: 50,
             // Add timestamps if desired
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
         );
+
+        // Create the oddsHistory subcollection with initial odds
+        const oddsHistoryRef = docRef.collection("oddsHistory").doc();
+        batch.set(oddsHistoryRef, {
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          homeTeamOdds: 50,
+          visitorTeamOdds: 50
+        });
       });
 
       batches.push(batch.commit());
@@ -120,6 +131,7 @@ export const updateRecentNbaGames = onSchedule("every 6 hours", async (event) =>
             ...game,
             home_team: { ...game.home_team },
             visitor_team: { ...game.visitor_team },
+            // Preserve current odds values by not overwriting them (using merge: true)
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
@@ -210,6 +222,9 @@ export const placeBet = onCall({
   if (typeof betAmount !== "number" || betAmount <= 0) {
     throw new HttpsError("invalid-argument", "Bet amount must be a positive number.");
   }
+  if (selectedTeam !== "home" && selectedTeam !== "visitor") {
+    throw new HttpsError("invalid-argument", "Selected team must be either 'home' or 'visitor'.");
+  }
 
   // Use a transaction for atomicity.
   const userRef = db.collection("users").doc(uid);
@@ -226,14 +241,36 @@ export const placeBet = onCall({
       throw new HttpsError("failed-precondition", "Insufficient balance.");
     }
 
+    // Get the event document to retrieve the current odds
+    const eventRef = db.collection("events").doc(eventId);
+    const eventDoc = await transaction.get(eventRef);
+    
+    if (!eventDoc.exists) {
+      throw new HttpsError("not-found", "Event not found.");
+    }
+    
+    const eventData = eventDoc.data()!;
+    
+    // Get the appropriate odds based on the selected team
+    const selectedOdds = selectedTeam === "home" 
+      ? eventData.homeTeamCurrentOdds 
+      : eventData.visitorTeamCurrentOdds;
+    
+    // Calculate expected payout based on odds
+    // For simplicity, we use a linear payout model: higher odds = higher payout
+    // In a real betting system, you'd use more complex calculations
+    const oddsMultiplier = 2 * (selectedOdds / 50); // Normalize to 2x at 50% odds
+    const expectedPayout = betAmount * oddsMultiplier;
+
     // Create the trade document.
     const tradeRef = db.collection("trades").doc();
     transaction.set(tradeRef, {
       userId: uid,
       eventId,
       amount: betAmount,
-      expectedPayout: betAmount * 2,
+      expectedPayout: expectedPayout,
       selectedTeam,
+      selectedOdds: selectedOdds, // Save the odds at the time of bet
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       status: "Pending"
     });
@@ -245,12 +282,15 @@ export const placeBet = onCall({
     });
 
     // Update the event document with the new trade ID.
-    const eventRef = db.collection("events").doc(eventId);
     transaction.update(eventRef, {
       trades: admin.firestore.FieldValue.arrayUnion(tradeRef.id)
     });
 
-    return { tradeId: tradeRef.id };
+    return { 
+      tradeId: tradeRef.id,
+      expectedPayout: expectedPayout,
+      selectedOdds: selectedOdds
+    };
   });
 });
 
