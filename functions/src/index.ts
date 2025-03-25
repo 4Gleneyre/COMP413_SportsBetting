@@ -2,6 +2,12 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { BalldontlieAPI } from "@balldontlie/sdk";
+import OpenAI from "openai";
+import * as dotenv from "dotenv";
+
+// Load environment variables from .env file
+dotenv.config();
+
 admin.initializeApp();
 const db = admin.firestore();
 const api = new BalldontlieAPI({ apiKey: "066f0ce8-a61a-4aee-82c0-e902d6ad3a0a" });
@@ -286,9 +292,16 @@ export const getLatestActivity = onCall(
         tradesSnapshot.docs.map(async (doc) => {
           const tradeData = doc.data();
 
-          // Preserve the userId temporarily for fetching user data.
-          const rawUserId = tradeData.userId;
-          // Remove the sensitive userId field from the trade data.
+          // Fetch user data if needed
+          let userData = null;
+          if (tradeData.userId) {
+            const userDoc = await admin.firestore().collection("users").doc(tradeData.userId).get();
+            userData = userDoc.exists ? { 
+              displayName: userDoc.data()?.displayName || "Anonymous User" 
+            } : null;
+          }
+          
+          // Remove the sensitive userId field from the trade data
           delete tradeData.userId;
 
           // Fetch associated event details.
@@ -302,6 +315,7 @@ export const getLatestActivity = onCall(
             id: doc.id,
             ...tradeData,
             event: eventData,
+            user: userData
           };
         })
       );
@@ -310,6 +324,130 @@ export const getLatestActivity = onCall(
     } catch (error) {
       console.error("Error fetching latest activity:", error);
       throw new HttpsError("internal", "Error fetching latest activity");
+    }
+  }
+);
+
+// This is using a web search-enabled OpenAI model to analyze NBA games for betting purposes
+export const getGameBettingAnalysis = onCall(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+  },
+  async (request) => {
+    // Ensure the user is authenticated
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated.");
+    }
+
+    // Get the input parameters
+    const { homeTeam, awayTeam, gameDate } = request.data;
+
+    // Validate required input
+    if (!homeTeam || !awayTeam || !gameDate) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Missing required fields: homeTeam, awayTeam, and gameDate are required."
+      );
+    }
+
+    try {
+      // Initialize OpenAI client with API key
+      // Note: In production, you should store this key in Firebase environment secrets
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+      });
+
+      // Call OpenAI with web search enabled
+      const response = await openai.responses.create({
+        model: "gpt-4o",
+        tools: [
+          { 
+            type: "web_search_preview",
+            search_context_size: "high" // Use high quality search for better analysis
+          }
+        ],
+        input: `Provide a detailed sports betting analysis for the NBA game between ${homeTeam} and ${awayTeam} scheduled for ${gameDate}. 
+                Include the following:
+                1. Recent team performance and trends
+                2. Key player stats and any injury updates
+                3. Head-to-head history between these teams
+                4. Current betting odds (spread, over/under, moneyline)
+                5. Expert opinions and predictions
+                6. Relevant statistical trends that might impact betting decisions
+                
+                Format this information in a clear, organized manner for someone making a betting decision.
+                Include citations to your sources.`,
+        tool_choice: { type: "web_search_preview" }, // Force web search for consistent results
+        temperature: 0.2, // Lower temperature for more factual responses
+      });
+
+      // Get the analysis text from the response
+      const analysisText = response.output_text || '';
+      
+      // Log the completion for debugging
+      console.log(`Completed search request for ${homeTeam} vs ${awayTeam} game analysis`);
+
+      // For typescript, we need to handle the response structure properly
+      // Let's extract any citations if available
+      let citations: Array<{text: string, url: string, title: string}> = [];
+      
+      try {
+        // Access annotations if available in the right format
+        // This structure depends on the OpenAI API version, may need adjustments
+        const messageItem = response.output.find(item => item.type === 'message');
+        if (messageItem && 'content' in messageItem) {
+          const content = messageItem.content;
+          if (Array.isArray(content) && content.length > 0 && 'annotations' in content[0]) {
+            const annotations = content[0].annotations;
+            if (Array.isArray(annotations)) {
+              citations = annotations
+                .filter(anno => anno.type === 'url_citation')
+                .map(anno => {
+                  // Type assertion to handle the TypeScript error
+                  const urlCitation = anno as { 
+                    type: string; 
+                    text?: string;
+                    start_index?: number; 
+                    end_index?: number; 
+                    url?: string; 
+                    title?: string 
+                  };
+                  
+                  // Safely access properties with optional chaining
+                  return {
+                    text: urlCitation.start_index !== undefined && urlCitation.end_index !== undefined 
+                          ? analysisText.substring(urlCitation.start_index, urlCitation.end_index)
+                          : 'Citation',
+                    url: urlCitation.url || '#',
+                    title: urlCitation.title || 'Source'
+                  };
+                });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to extract citations:', e);
+        // Continue with the analysis even if citation extraction fails
+      }
+
+      // Return the analysis results with citations if available
+      return {
+        analysis: analysisText,
+        citations: citations,
+        metadata: {
+          homeTeam,
+          awayTeam,
+          gameDate,
+          generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }
+      };
+    } catch (error) {
+      console.error("Error generating betting analysis:", error);
+      throw new HttpsError(
+        "internal",
+        "Failed to generate betting analysis. Please try again later."
+      );
     }
   }
 );
