@@ -30,6 +30,107 @@ interface BettingModalProps {
   onClose: () => void;
 }
 
+interface GameInfoModalProps {
+  event: Event;
+  onClose: () => void;
+  onSelectTeam: (team: 'home' | 'visitor') => void;
+}
+
+function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-2xl w-full mx-4 shadow-xl">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold">Game Details</h2>
+          <button 
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        
+        <div className="mb-6">
+          <div className="flex justify-between items-center mb-2">
+            <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium">
+              Basketball
+            </span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">
+              {new Date(event.status).toLocaleDateString(undefined, {
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit'
+              })}
+            </span>
+          </div>
+          <div className="my-8 grid grid-cols-[1fr,auto,1fr] gap-6 items-center">
+            <div className="flex flex-col items-center text-center">
+              <TeamLogo
+                abbreviation={event.home_team.abbreviation}
+                teamName={event.home_team.full_name}
+              />
+              <h3 className="text-xl font-bold mt-4">{event.home_team.full_name}</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{event.home_team.city}</p>
+            </div>
+            
+            <div className="flex flex-col items-center">
+              <span className="text-2xl font-bold text-gray-500 dark:text-gray-400">VS</span>
+            </div>
+            
+            <div className="flex flex-col items-center text-center">
+              <TeamLogo
+                abbreviation={event.visitor_team.abbreviation}
+                teamName={event.visitor_team.full_name}
+              />
+              <h3 className="text-xl font-bold mt-4">{event.visitor_team.full_name}</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{event.visitor_team.city}</p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="mt-8">
+          <h3 className="text-lg font-semibold mb-4">Place a Bet</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Select a team to bet on:</p>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <button
+              onClick={() => onSelectTeam('home')}
+              className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group flex flex-col items-center"
+            >
+              <TeamLogo
+                abbreviation={event.home_team.abbreviation}
+                teamName={event.home_team.full_name}
+              />
+              <span className="mt-2 font-medium group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                {event.home_team.full_name}
+              </span>
+              <span className="text-sm text-gray-500 dark:text-gray-400 mt-1">50% chance</span>
+            </button>
+            
+            <button
+              onClick={() => onSelectTeam('visitor')}
+              className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group flex flex-col items-center"
+            >
+              <TeamLogo
+                abbreviation={event.visitor_team.abbreviation}
+                teamName={event.visitor_team.full_name}
+              />
+              <span className="mt-2 font-medium group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                {event.visitor_team.full_name}
+              </span>
+              <span className="text-sm text-gray-500 dark:text-gray-400 mt-1">50% chance</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
   const [betAmount, setBetAmount] = useState<string>('');
   const [showAuthAlert, setShowAuthAlert] = useState(false);
@@ -175,6 +276,7 @@ export default function Home() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' } | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDates, setFilterDates] = useState<[Date | null, Date | null]>([null, null]);
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -380,7 +482,8 @@ export default function Home() {
         {events.map((event) => (
           <div
             key={event.id}
-            className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden"
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+            onClick={() => setSelectedEvent(event)}
           >
             <div className="p-4">
               <div className="flex items-center justify-between mb-4">
@@ -399,17 +502,14 @@ export default function Home() {
               </div>
 
               <div className="grid grid-cols-[1fr,auto,1fr] gap-4 items-center">
-                <button
-                  onClick={() => setSelectedBet({ event, team: 'home' })}
-                  className="text-left p-4 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
-                >
+                <div className="text-left p-4">
                   <div className="flex items-center gap-4">
                     <TeamLogo
                       abbreviation={event.home_team.abbreviation}
                       teamName={event.home_team.full_name}
                     />
                     <div>
-                      <div className="font-semibold text-lg group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                      <div className="font-semibold text-lg">
                         {event.home_team.full_name}
                       </div>
                       <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -417,7 +517,7 @@ export default function Home() {
                       </div>
                     </div>
                   </div>
-                </button>
+                </div>
 
                 <div className="flex flex-col items-center gap-2">
                   <div className="w-px h-8 bg-gray-200 dark:bg-gray-700" />
@@ -425,13 +525,10 @@ export default function Home() {
                   <div className="w-px h-8 bg-gray-200 dark:bg-gray-700" />
                 </div>
 
-                <button
-                  onClick={() => setSelectedBet({ event, team: 'visitor' })}
-                  className="text-right p-4 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
-                >
+                <div className="text-right p-4">
                   <div className="flex items-center justify-end gap-4">
                     <div>
-                      <div className="font-semibold text-lg group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                      <div className="font-semibold text-lg">
                         {event.visitor_team.full_name}
                       </div>
                       <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -443,7 +540,7 @@ export default function Home() {
                       teamName={event.visitor_team.full_name}
                     />
                   </div>
-                </button>
+                </div>
               </div>
             </div>
           </div>
@@ -460,6 +557,19 @@ export default function Home() {
         </div>
       )}
 
+      {/* Game Info Modal */}
+      {selectedEvent && (
+        <GameInfoModal
+          event={selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+          onSelectTeam={(team) => {
+            setSelectedBet({ event: selectedEvent, team });
+            setSelectedEvent(null);
+          }}
+        />
+      )}
+
+      {/* Betting Modal */}
       {selectedBet && (
         <BettingModal
           event={selectedBet.event}
