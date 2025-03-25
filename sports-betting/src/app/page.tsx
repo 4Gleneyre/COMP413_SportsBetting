@@ -23,6 +23,8 @@ import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 import DateRangePicker from '@/components/DateRangePicker';
 import { httpsCallable } from "firebase/functions";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface BettingModalProps {
   event: Event;
@@ -37,9 +39,39 @@ interface GameInfoModalProps {
 }
 
 function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
+  const [isGeneratingAnalysis, setIsGeneratingAnalysis] = useState(false);
+  const [analysis, setAnalysis] = useState<{analysis: string, citations: Array<{text: string, url: string, title: string}>, metadata: any} | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const getGameBettingAnalysisFunction = httpsCallable(functions, "getGameBettingAnalysis");
+
+  const generateAnalysis = async () => {
+    setIsGeneratingAnalysis(true);
+    setAnalysisError(null);
+    
+    try {
+      // Format the date in YYYY-MM-DD format
+      const gameDate = new Date(event.status).toISOString().split('T')[0];
+      
+      // Call the Cloud Function
+      const result = await getGameBettingAnalysisFunction({
+        homeTeam: event.home_team.full_name,
+        awayTeam: event.visitor_team.full_name,
+        gameDate: gameDate
+      });
+      
+      // Set the analysis data
+      setAnalysis(result.data as any);
+    } catch (error: any) {
+      console.error("Error generating analysis:", error);
+      setAnalysisError(error.message || "Failed to generate analysis. Please try again.");
+    } finally {
+      setIsGeneratingAnalysis(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-2xl w-full mx-4 shadow-xl">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-2xl w-full mx-4 shadow-xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold">Game Details</h2>
           <button 
@@ -90,6 +122,66 @@ function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{event.visitor_team.city}</p>
             </div>
           </div>
+          
+          {/* AI Analysis Button */}
+          <div className="mt-4 mb-6 flex justify-center">
+            <button
+              onClick={generateAnalysis}
+              disabled={isGeneratingAnalysis}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isGeneratingAnalysis ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Generating Analysis...
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  Generate AI Analysis of Game
+                </>
+              )}
+            </button>
+          </div>
+          
+          {/* Display Analysis with ReactMarkdown */}
+          {analysis && (
+            <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <h3 className="text-lg font-semibold mb-3">AI Betting Analysis</h3>
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {analysis.analysis}
+                </ReactMarkdown>
+              </div>
+              
+              {analysis.citations && analysis.citations.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
+                  <h4 className="text-sm font-medium mb-2">Sources</h4>
+                  <ul className="text-xs text-gray-600 dark:text-gray-300">
+                    {analysis.citations.map((citation, i) => (
+                      <li key={i} className="mb-1">
+                        <a href={citation.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                          {citation.title || citation.url}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Display Error if any */}
+          {analysisError && (
+            <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg">
+              <p>{analysisError}</p>
+            </div>
+          )}
         </div>
         
         <div className="mt-8">
