@@ -21,4 +21,6 @@ export interface Event {
   status: string;
   time: string | null;
   updatedAt: Date;
+  homeTeamCurrentOdds: number;
+  visitorTeamCurrentOdds: number;
 } 

@@ -257,10 +257,9 @@ export const placeBet = onCall({
       : eventData.visitorTeamCurrentOdds;
     
     // Calculate expected payout based on odds
-    // For simplicity, we use a linear payout model: higher odds = higher payout
-    // In a real betting system, you'd use more complex calculations
-    const oddsMultiplier = 2 * (selectedOdds / 50); // Normalize to 2x at 50% odds
-    const expectedPayout = betAmount * oddsMultiplier;
+    // For betting, lower probability (odds) should result in higher payouts
+    // This formula gives a payout of 2x for a 50% probability
+    const expectedPayout = betAmount * (100 / selectedOdds);
 
     // Create the trade document.
     const tradeRef = db.collection("trades").doc();

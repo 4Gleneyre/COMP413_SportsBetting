@@ -15,6 +15,15 @@ datetime
 (string)
 
 
+homeTeamCurrentOdds
+50
+(number)
+
+
+visitorTeamCurrentOdds
+50
+(number)
+
 
 home_team
 (map)
@@ -91,7 +100,7 @@ time
 
 
 updatedAt
-February 5, 2025 at 4:49:05 AM UTC-6
+February 5, 2025 at 4:49:05 AM UTC-6
 (timestamp)
 
 
@@ -140,6 +149,23 @@ visitor_team_score
 
 In this case, the status = "Final".
 
+Each event document also has an "oddsHistory" subcollection that tracks changes in betting odds over time. 
+Each document in the oddsHistory subcollection has this structure:
+
+timestamp
+February 5, 2025 at 4:49:05 AM UTC-6
+(timestamp)
+
+
+homeTeamOdds
+50
+(number)
+
+
+visitorTeamOdds
+50
+(number)
+
 Here is an example of an event document where the status is not yet final:
 
 date
@@ -151,6 +177,15 @@ datetime
 "2025-02-07T03:00:00.000Z"
 (string)
 
+
+homeTeamCurrentOdds
+50
+(number)
+
+
+visitorTeamCurrentOdds
+50
+(number)
 
 
 home_team
@@ -238,7 +273,7 @@ trades
 
 
 updatedAt
-February 5, 2025 at 4:47:06 AM UTC-6
+February 5, 2025 at 4:47:06 AM UTC-6
 (timestamp)
 
 
@@ -295,7 +330,7 @@ amount
 
 
 createdAt
-February 5, 2025 at 10:21:41 AM UTC-6
+February 5, 2025 at 10:21:41 AM UTC-6
 (timestamp)
 
 
@@ -314,6 +349,11 @@ selectedTeam
 (string)
 
 
+selectedOdds
+50
+(number)
+
+
 status
 "pending"
 (string)
@@ -325,7 +365,7 @@ userId
 And here is an example of a user document (document named after userId in "users" collection):
 
 createdAt
-January 28, 2025 at 6:35:32 PM UTC-6
+January 28, 2025 at 6:35:32 PM UTC-6
 (timestamp)
 
 

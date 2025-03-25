@@ -200,7 +200,7 @@ function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
               <span className="mt-2 font-medium group-hover:text-blue-600 dark:group-hover:text-blue-400">
                 {event.home_team.full_name}
               </span>
-              <span className="text-sm text-gray-500 dark:text-gray-400 mt-1">50% chance</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400 mt-1">{event.homeTeamCurrentOdds}% chance</span>
             </button>
             
             <button
@@ -214,7 +214,7 @@ function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
               <span className="mt-2 font-medium group-hover:text-blue-600 dark:group-hover:text-blue-400">
                 {event.visitor_team.full_name}
               </span>
-              <span className="text-sm text-gray-500 dark:text-gray-400 mt-1">50% chance</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400 mt-1">{event.visitorTeamCurrentOdds}% chance</span>
             </button>
           </div>
         </div>
@@ -235,7 +235,11 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
     selectedTeam === 'home'
       ? event.home_team.full_name
       : event.visitor_team.full_name;
+  const selectedOdds = selectedTeam === 'home' 
+    ? event.homeTeamCurrentOdds 
+    : event.visitorTeamCurrentOdds;
   const numericAmount = Number(betAmount);
+  const potentialPayout = numericAmount * (100 / selectedOdds);
 
   // Fetch user's balance when modal opens
   useEffect(() => {
@@ -272,6 +276,7 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
         eventId: event.id,
         betAmount: numericAmount,
         selectedTeam,
+        selectedOdds: selectedOdds
       });
   
       // If successful, you can show a success message and close the modal.
@@ -313,7 +318,10 @@ function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
           {numericAmount > 0 && (
             <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg">
               <p className="text-sm text-green-600 dark:text-green-400">
-                Potential Payout: ${(numericAmount * 2).toFixed(2)}
+                Potential Payout: ${potentialPayout.toFixed(2)}
+              </p>
+              <p className="text-xs text-green-500 dark:text-green-300 mt-1">
+                Based on {selectedOdds}% odds
               </p>
             </div>
           )}
@@ -605,7 +613,7 @@ export default function Home() {
                         {event.home_team.full_name}
                       </div>
                       <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        50% chance
+                        {event.homeTeamCurrentOdds}% chance
                       </div>
                     </div>
                   </div>
@@ -624,7 +632,7 @@ export default function Home() {
                         {event.visitor_team.full_name}
                       </div>
                       <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        50% chance
+                        {event.visitorTeamCurrentOdds}% chance
                       </div>
                     </div>
                     <TeamLogo
