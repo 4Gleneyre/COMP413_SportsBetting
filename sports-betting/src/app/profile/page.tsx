@@ -22,6 +22,7 @@ interface Trade {
 interface UserData {
   trades: string[];
   walletBalance: number;
+  lifetimePnl?: number;
 }
 
 function formatCurrency(amount: number) {
@@ -193,6 +194,7 @@ export default function ProfilePage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [walletBalance, setWalletBalance] = useState(0);
+  const [lifetimePnl, setLifetimePnl] = useState<number | null>(null);
   const { user } = useAuth();
   const [isAddFundsModalOpen, setIsAddFundsModalOpen] = useState(false);
 
@@ -222,6 +224,7 @@ export default function ProfilePage() {
 
         const userData = userDoc.data() as UserData;
         setWalletBalance(userData.walletBalance || 0);
+        setLifetimePnl(userData.lifetimePnl ?? null);
         
         const userTrades = userData.trades || [];
         console.log('Found trade IDs:', userTrades);
@@ -287,6 +290,7 @@ export default function ProfilePage() {
       
       console.log('New balance will be:', newBalance);
 
+      // Update only the walletBalance field, preserving other fields like lifetimePnl
       await updateDoc(userRef, {
         walletBalance: newBalance
       });
@@ -371,14 +375,15 @@ export default function ProfilePage() {
                 <p className="text-sm font-medium">Lifetime P&L</p>
                 <p className="mt-1">
                   {(() => {
-                    const pnl = trades.reduce((total, trade) => {
-                      if (trade.status === 'Won') {
-                        return total + (trade.expectedPayout - trade.amount);
-                      } else if (trade.status === 'Lost') {
-                        return total - trade.amount;
-                      }
-                      return total;
-                    }, 0);
+                    const pnl = lifetimePnl !== null ? lifetimePnl :
+                      trades.reduce((total, trade) => {
+                        if (trade.status === 'Won') {
+                          return total + (trade.expectedPayout - trade.amount);
+                        } else if (trade.status === 'Lost') {
+                          return total - trade.amount;
+                        }
+                        return total;
+                      }, 0);
                     
                     return (
                       <span className={`font-bold text-lg ${

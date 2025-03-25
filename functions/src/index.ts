@@ -238,35 +238,63 @@ export const updateRecentNbaGames = onSchedule("every 6 hours", async (event) =>
           winningTeam = "visitor";
         }
 
-        // Prepare a batch for updating trades and build an accumulator for winning payouts.
+        // Prepare a batch for updating trades
         const tradeBatch = db.batch();
-        const userIncrements: { [userId: string]: number } = {};
+        // Create a map to track P&L updates for each user
+        const userUpdates: { [userId: string]: { walletIncrement: number, pnlIncrement: number } } = {};
 
         tradesSnapshot.docs.forEach((tradeDoc) => {
           const trade = tradeDoc.data();
           let newStatus = "Lost";
+          let pnlChange = -trade.amount; // Default to losing the bet amount
+          
           if (winningTeam && trade.selectedTeam === winningTeam) {
             newStatus = "Won";
-            // Accumulate the expected payout for the user.
+            // Calculate the net profit (payout - bet amount)
+            const profit = (trade.expectedPayout || 0) - trade.amount;
+            pnlChange = profit;
+            
+            // Track wallet and P&L increments for this user
             if (trade.userId) {
-              userIncrements[trade.userId] =
-                (userIncrements[trade.userId] || 0) + (trade.expectedPayout || 0);
+              if (!userUpdates[trade.userId]) {
+                userUpdates[trade.userId] = { walletIncrement: 0, pnlIncrement: 0 };
+              }
+              userUpdates[trade.userId].walletIncrement += trade.expectedPayout || 0;
+              userUpdates[trade.userId].pnlIncrement += pnlChange;
+            }
+          } else {
+            // For losses, only update P&L (wallet was already decreased when bet was placed)
+            if (trade.userId) {
+              if (!userUpdates[trade.userId]) {
+                userUpdates[trade.userId] = { walletIncrement: 0, pnlIncrement: 0 };
+              }
+              userUpdates[trade.userId].pnlIncrement += pnlChange;
             }
           }
+          
           tradeBatch.update(tradeDoc.ref, { status: newStatus });
         });
 
         await tradeBatch.commit();
 
-        // Now update each winning user's walletBalance using FieldValue.increment.
-        // (This ensures that if a user wins multiple trades, the increments are summed.)
+        // Update each user's walletBalance and lifetimePnl
         const userBatch = db.batch();
-        for (const [userId, incrementAmount] of Object.entries(userIncrements)) {
+        for (const [userId, updates] of Object.entries(userUpdates)) {
           const userRef = db.collection("users").doc(userId);
+          
+          // Update wallet balance for winners (or could be zero for losers)
+          if (updates.walletIncrement > 0) {
+            userBatch.update(userRef, {
+              walletBalance: admin.firestore.FieldValue.increment(updates.walletIncrement),
+            });
+          }
+          
+          // Always update the lifetimePnl field
           userBatch.update(userRef, {
-            walletBalance: admin.firestore.FieldValue.increment(incrementAmount),
+            lifetimePnl: admin.firestore.FieldValue.increment(updates.pnlIncrement),
           });
         }
+        
         await userBatch.commit();
       }
     }
@@ -307,6 +335,16 @@ export const placeBet = onCall({
     }
     const userData = userDoc.data();
     const walletBalance = userData?.walletBalance || 0;
+    
+    // Initialize lifetimePnl field if it doesn't exist
+    const userUpdates: any = {
+      walletBalance: walletBalance - betAmount,
+    };
+    
+    // If lifetimePnl doesn't exist, initialize it to 0
+    if (userData?.lifetimePnl === undefined) {
+      userUpdates.lifetimePnl = 0;
+    }
 
     // Ensure the user has enough funds.
     if (betAmount > walletBalance) {
@@ -346,11 +384,11 @@ export const placeBet = onCall({
       status: "Pending"
     });
 
-    // Deduct the bet amount from the user's balance and add the trade ID.
-    transaction.update(userRef, {
-      walletBalance: walletBalance - betAmount,
-      trades: admin.firestore.FieldValue.arrayUnion(tradeRef.id)
-    });
+    // Add the trade ID to the user's trades array
+    userUpdates.trades = admin.firestore.FieldValue.arrayUnion(tradeRef.id);
+    
+    // Update the user document with all changes
+    transaction.update(userRef, userUpdates);
 
     // Update the event document with the new trade ID.
     transaction.update(eventRef, {

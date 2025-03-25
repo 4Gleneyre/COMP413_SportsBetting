@@ -33,7 +33,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             photoURL: user.photoURL,
             walletBalance: 0,
             trades: [],
-            createdAt: new Date()
+            createdAt: new Date(),
+            lifetimePnl: 0
           });
         }
       }
