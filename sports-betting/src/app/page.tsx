@@ -25,6 +25,7 @@ import DateRangePicker from '@/components/DateRangePicker';
 import { httpsCallable } from "firebase/functions";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import OddsHistoryChart from '@/components/OddsHistoryChart';
 
 interface BettingModalProps {
   event: Event;
@@ -121,6 +122,16 @@ function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
               <h3 className="text-xl font-bold mt-4">{event.visitor_team.full_name}</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{event.visitor_team.city}</p>
             </div>
+          </div>
+          
+          {/* Odds History Chart */}
+          <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
+            <h3 className="text-lg font-semibold mb-4">Odds History</h3>
+            <OddsHistoryChart 
+              eventId={event.id.toString()}
+              homeTeamName={event.home_team.name}
+              visitorTeamName={event.visitor_team.name}
+            />
           </div>
           
           {/* AI Analysis Button */}
