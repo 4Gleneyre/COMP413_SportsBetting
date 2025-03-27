@@ -391,6 +391,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDates, setFilterDates] = useState<[Date | null, Date | null]>([null, null]);
   const [showFilterModal, setShowFilterModal] = useState(false);
+  const { user } = useAuth();
 
   // Add debug logging for filterDates
   useEffect(() => {
@@ -593,7 +594,7 @@ export default function Home() {
         {events.map((event) => (
           <div
             key={event.id}
-            className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors relative"
             onClick={() => setSelectedEvent(event)}
           >
             <div className="p-4">
@@ -601,15 +602,29 @@ export default function Home() {
                 <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium">
                   Basketball
                 </span>
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  {new Date(event.status).toLocaleDateString(undefined, {
-                    weekday: 'short',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: '2-digit'
-                  })}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    {new Date(event.status).toLocaleDateString(undefined, {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit'
+                    })}
+                  </span>
+                  {event.trades && event.trades.length > 0 && (
+                    <div className="relative group">
+                      <span className="text-xl cursor-help">
+                        🔥
+                      </span>
+                      <div className="absolute hidden group-hover:block right-0 top-full mt-2 px-4 py-2 bg-gray-900 text-white rounded-lg shadow-lg whitespace-nowrap z-10">
+                        <span className="text-sm">
+                          <span className="font-bold text-orange-400">{event.trades.length}</span> {event.trades.length === 1 ? 'user has' : 'users have'} bet on this game
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-[1fr,auto,1fr] gap-4 items-center">
