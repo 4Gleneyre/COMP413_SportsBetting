@@ -43,6 +43,12 @@ export function Navbar() {
             >
               Activity
             </Link>
+            <Link 
+              href="/leaderboard" 
+              className={getLinkClassName('/leaderboard')}
+            >
+              Leaderboard
+            </Link>
             {user && (
               <Link 
                 href="/profile" 
