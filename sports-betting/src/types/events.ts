@@ -23,4 +23,5 @@ export interface Event {
   updatedAt: Date;
   homeTeamCurrentOdds: number;
   visitorTeamCurrentOdds: number;
+  datetime: string;
 } 

@@ -190,6 +190,29 @@ function formatFullDateTime(date: Date) {
   }).format(date);
 }
 
+function formatDateOnly(date: Date) {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  }).format(date);
+}
+
+// Function to parse date strings without timezone conversion
+function parseLocalDate(dateString: string) {
+  // If the format is YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+    const [year, month, day] = dateString.split('-').map(Number);
+    // Create date with local time set to midnight
+    return new Date(year, month - 1, day, 0, 0, 0);
+  }
+  
+  // For other formats, use standard date parsing but handle potential timezone issues
+  const date = new Date(dateString);
+  return date;
+}
+
 export default function ProfilePage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
@@ -246,6 +269,13 @@ export default function ProfilePage() {
             
             if (eventData) {
               console.log('Event data found for trade');
+              // Add datetime property to event data by combining date and time
+              if (eventData.date && !eventData.datetime) {
+                // Use date + time if available, or just date with a default time
+                eventData.datetime = eventData.time 
+                  ? `${eventData.date}T${eventData.time}` 
+                  : `${eventData.date}T00:00:00`;
+              }
             } else {
               console.log('No event data found for trade');
             }
@@ -425,7 +455,13 @@ export default function ProfilePage() {
       ) : (
         <div className="space-y-6">
           {trades.map((trade) => {
-            const eventDate = trade.event ? new Date(trade.event.date) : null;
+            console.log('Trade:', trade.id, 'Event:', trade.event);
+            if (trade.event) {
+              console.log('Raw event date:', trade.event.datetime);
+              console.log('Event date type:', typeof trade.event.datetime);
+            }
+            const eventDate = trade.event ? parseLocalDate(trade.event.datetime) : null;
+            console.log('Event date for trade:', trade.id, eventDate);
             return (
               <div
                 key={trade.id}
