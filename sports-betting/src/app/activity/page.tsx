@@ -203,7 +203,7 @@ export default function ActivityPage() {
                     Bet Amount: ${trade.amount}
                   </span>
                   <span className="text-gray-500 dark:text-gray-400">
-                    Potential Payout: ${trade.expectedPayout}
+                    Potential Payout: ${trade.expectedPayout.toFixed(2)}
                   </span>
                 </div>
               </div>
