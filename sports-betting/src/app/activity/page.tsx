@@ -4,6 +4,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "@/lib/firebase";
+import { Timestamp } from "firebase/firestore";
+
+// Define a type for serialized Firestore timestamp
+interface SerializedTimestamp {
+  _seconds: number;
+  _nanoseconds: number;
+}
 
 interface Trade {
   id: string;
@@ -11,7 +18,7 @@ interface Trade {
   expectedPayout: number;
   selectedTeam: 'home' | 'visitor';
   status: string;
-  createdAt: any;
+  createdAt: SerializedTimestamp;
   event?: {
     home_team: {
       full_name: string;
@@ -67,7 +74,18 @@ export default function ActivityPage() {
       }
 
       if (newTrades.length > 0) {
-        lastCreatedAtRef.current = new Date(newTrades[newTrades.length - 1].createdAt.seconds * 1000).getTime();
+        // Safely handle serialized timestamp with validation
+        const lastTrade = newTrades[newTrades.length - 1];
+        if (lastTrade.createdAt && 
+            typeof lastTrade.createdAt._seconds === 'number' && 
+            !isNaN(lastTrade.createdAt._seconds) &&
+            isFinite(lastTrade.createdAt._seconds)) {
+          lastCreatedAtRef.current = lastTrade.createdAt._seconds * 1000;
+        } else {
+          console.warn('Invalid timestamp found in last trade:', lastTrade);
+          // Fallback to current time if the timestamp is invalid
+          lastCreatedAtRef.current = Date.now();
+        }
       }
 
       if (isInitial) {
@@ -118,57 +136,79 @@ export default function ActivityPage() {
         </p>
       ) : (
         <div className="space-y-4">
-          {trades.map((trade, index) => (
-            <div
-              key={trade.id}
-              ref={index === trades.length - 1 ? lastTradeElementRef : null}
-              className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4"
-            >
-              <div className="flex justify-between items-start mb-3">
-                <div>
-                  <h3 className="font-semibold">
-                    {trade.selectedTeam === 'home'
-                      ? trade.event?.home_team.full_name
-                      : trade.event?.visitor_team.full_name}
-                  </h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    vs {trade.selectedTeam === 'home'
-                      ? trade.event?.visitor_team.full_name
-                      : trade.event?.home_team.full_name}
-                  </p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                    {new Date(trade.createdAt.seconds * 1000).toLocaleDateString(undefined, {
-                      weekday: 'long',
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </p>
+          {trades.map((trade, index) => {            
+            // Validate timestamp to avoid errors with invalid dates
+            const hasValidTimestamp = trade.createdAt && 
+              typeof trade.createdAt._seconds === 'number' && 
+              !isNaN(trade.createdAt._seconds) &&
+              isFinite(trade.createdAt._seconds);
+            
+            const timestamp = hasValidTimestamp ? trade.createdAt._seconds * 1000 : null;
+            const formattedDate = timestamp ? new Date(timestamp) : null;
+            
+            // Safely log date info without causing errors
+            console.log('Trade created at debug:', {
+              tradeId: trade.id,
+              rawCreatedAt: trade.createdAt,
+              hasValidTimestamp,
+              timestamp,
+              formattedDate: formattedDate ? formattedDate.toString() : 'Invalid date'
+            });
+            
+            return (
+              <div
+                key={trade.id}
+                ref={index === trades.length - 1 ? lastTradeElementRef : null}
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4"
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <h3 className="font-semibold">
+                      {trade.selectedTeam === 'home'
+                        ? trade.event?.home_team.full_name
+                        : trade.event?.visitor_team.full_name}
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      vs {trade.selectedTeam === 'home'
+                        ? trade.event?.visitor_team.full_name
+                        : trade.event?.home_team.full_name}
+                    </p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                      {formattedDate 
+                        ? formattedDate.toLocaleDateString(undefined, {
+                            weekday: 'long',
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })
+                        : 'Date unavailable'}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className={`inline-block px-2 py-1 rounded text-sm font-medium ${
+                      trade.status === 'Pending'
+                        ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400'
+                        : trade.status === 'Won'
+                        ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400'
+                        : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400'
+                    }`}>
+                      {trade.status}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className={`inline-block px-2 py-1 rounded text-sm font-medium ${
-                    trade.status === 'Pending'
-                      ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400'
-                      : trade.status === 'Won'
-                      ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400'
-                      : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400'
-                  }`}>
-                    {trade.status}
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500 dark:text-gray-400">
+                    Bet Amount: ${trade.amount}
+                  </span>
+                  <span className="text-gray-500 dark:text-gray-400">
+                    Potential Payout: ${trade.expectedPayout}
                   </span>
                 </div>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500 dark:text-gray-400">
-                  Bet Amount: ${trade.amount}
-                </span>
-                <span className="text-gray-500 dark:text-gray-400">
-                  Potential Payout: ${trade.expectedPayout}
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {loadingMore && (
             <div className="animate-pulse space-y-4">
               {[1, 2].map((i) => (
