@@ -20,15 +20,18 @@ export default function LeaderboardPage() {
     const fetchLeaderboard = async () => {
       try {
         const usersRef = collection(db, 'users');
-        const q = query(usersRef, orderBy('totalPnL', 'desc'));
-        const querySnapshot = await getDocs(q);
+        const querySnapshot = await getDocs(usersRef);
         
         const leaderboardData = querySnapshot.docs.map(doc => ({
           id: doc.id,
-          ...doc.data(),
-        })) as UserStats[];
+          username: doc.data().username || 'Anonymous',
+          totalPnL: doc.data().totalPnL || 0,
+          winRate: doc.data().winRate || 0,
+          totalBets: doc.data().totalBets || 0,
+        }));
 
-        setUsers(leaderboardData);
+        const sortedData = leaderboardData.sort((a, b) => b.totalPnL - a.totalPnL);
+        setUsers(sortedData);
       } catch (error) {
         console.error('Error fetching leaderboard:', error);
       } finally {
@@ -70,7 +73,7 @@ export default function LeaderboardPage() {
                   ${user.totalPnL.toFixed(2)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {(user.winRate * 100).toFixed(1)}%
+                  {user.totalBets > 0 ? `${(user.winRate * 100).toFixed(1)}%` : '-'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                   {user.totalBets}
