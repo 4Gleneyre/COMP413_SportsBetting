@@ -24,4 +24,5 @@ export interface Event {
   homeTeamCurrentOdds: number;
   visitorTeamCurrentOdds: number;
   datetime: string;
+  trades?: string[];  // Array of trade IDs
 } 
