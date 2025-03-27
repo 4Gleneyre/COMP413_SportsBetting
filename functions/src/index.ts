@@ -34,7 +34,7 @@ async function getPredictedOdds(homeTeam: any, visitorTeam: any) {
     }
     
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
+      model: "gemini-2.0-flash-lite",
     });
     
     // Create a prompt with relevant team information
@@ -473,6 +473,60 @@ export const getLatestActivity = onCall(
     } catch (error) {
       console.error("Error fetching latest activity:", error);
       throw new HttpsError("internal", "Error fetching latest activity");
+    }
+  }
+);
+
+export const getLeaderboard = onCall(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+  },
+  async (request) => {
+    // Ensure the user is authenticated
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated.");
+    }
+
+    // Destructure pagination parameters from request.data
+    const { pageSize, lastPnL, lastUserId } = request.data;
+    const effectivePageSize = typeof pageSize === "number" && pageSize > 0 ? pageSize : 10;
+
+    try {
+      // Create a query for users ordered by lifetimePnl descending
+      let usersQuery = admin
+        .firestore()
+        .collection("users")
+        .orderBy("lifetimePnl", "desc") // Use lifetimePnl as it's the field actually used in backend
+        .limit(effectivePageSize);
+
+      // If we have a last user's PnL and ID for pagination
+      if (lastPnL !== undefined && lastUserId) {
+        usersQuery = usersQuery.startAfter(lastPnL, lastUserId);
+      }
+
+      const usersSnapshot = await usersQuery.get();
+      
+      // Process user documents to include only necessary data for leaderboard
+      const users = usersSnapshot.docs.map(doc => {
+        const userData = doc.data();
+        return {
+          id: doc.id,
+          username: userData.username || userData.displayName || 'Anonymous',
+          totalPnL: userData.lifetimePnl || 0,
+          winRate: userData.winRate || 0,
+          totalBets: userData.totalBets || 0,
+        };
+      });
+
+      // Return leaderboard data along with a flag indicating if there are more results
+      return { 
+        users,
+        hasMore: users.length === effectivePageSize
+      };
+    } catch (error) {
+      console.error("Error fetching leaderboard:", error);
+      throw new HttpsError("internal", "Error fetching leaderboard");
     }
   }
 );
