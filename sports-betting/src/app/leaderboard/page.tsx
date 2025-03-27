@@ -85,58 +85,64 @@ export default function LeaderboardPage() {
   };
 
   if (loading && users.length === 0) {
-    return <div className="flex justify-center items-center min-h-screen">Loading...</div>;
+    return (
+      <div className="max-w-3xl mx-auto py-8 px-4">
+        <h2 className="text-2xl font-bold mb-8">Top Performers</h2>
+        <div className="animate-pulse space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-16 bg-gray-200 dark:bg-gray-700 rounded-xl" />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Top Performers</h1>
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total P&L</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Win Rate</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Bets</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {users.map((user, index) => (
-              <tr 
-                key={user.id} 
-                className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
-                ref={index === users.length - 1 ? lastElementRef : null}
-              >
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                  {index + 1}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {user.username}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  ${user.totalPnL.toFixed(2)}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {user.totalBets > 0 ? `${(user.winRate * 100).toFixed(1)}%` : '-'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {user.totalBets}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="max-w-3xl mx-auto py-8 px-4">
+      <h2 className="text-2xl font-bold mb-8">Top Performers</h2>
+      <div className="space-y-2">
+        {users.map((user, index) => (
+          <div
+            key={user.id}
+            ref={index === users.length - 1 ? lastElementRef : null}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between hover:border-gray-300 dark:hover:border-gray-600 transition-all"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold">
+                {index + 1}
+              </div>
+              <div>
+                <h3 className="font-semibold">{user.username}</h3>
+                <div className="flex gap-4 mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  <span>{user.totalBets} bets</span>
+                  <span>{(user.winRate * 100).toFixed(1)}% win rate</span>
+                </div>
+              </div>
+            </div>
+            <div className={`text-lg font-bold ${
+              user.totalPnL > 0 
+                ? 'text-green-600 dark:text-green-400' 
+                : user.totalPnL < 0 
+                ? 'text-red-600 dark:text-red-400'
+                : 'text-gray-600 dark:text-gray-400'
+            }`}>
+              ${user.totalPnL.toFixed(2)}
+            </div>
+          </div>
+        ))}
       </div>
+
       {isFetchingMore && (
-        <div className="flex justify-center items-center p-4">
-          <p className="text-gray-500">Loading more users...</p>
+        <div className="animate-pulse space-y-2 mt-2">
+          {[1, 2].map((i) => (
+            <div key={`loading-${i}`} className="h-16 bg-gray-200 dark:bg-gray-700 rounded-xl" />
+          ))}
         </div>
       )}
+      
       {!hasMore && users.length > 0 && (
-        <div className="flex justify-center items-center p-4">
-          <p className="text-gray-500">No more users to display</p>
+        <div className="text-center text-gray-500 dark:text-gray-400 mt-6">
+          No more users to display
         </div>
       )}
     </div>
