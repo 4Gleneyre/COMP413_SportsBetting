@@ -34,7 +34,7 @@ async function getPredictedOdds(homeTeam: any, visitorTeam: any) {
     }
     
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash-lite",
+      model: "gemini-2.0-flash",
     });
     
     // Create a prompt with relevant team information
