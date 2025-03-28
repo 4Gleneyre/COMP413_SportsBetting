@@ -79,7 +79,11 @@ async function getPredictedOdds(homeTeam: any, visitorTeam: any) {
   }
 }
 
-export const getFutureNbaGames = onSchedule("every 1 hours", async (event) => {
+export const getFutureNbaGames = onSchedule({
+  schedule: "every 1 hours",
+  timeoutSeconds: 3600 ,
+  memory: "1GiB" // Increase memory allocation
+}, async (event) => {
   try {
     const today = new Date().toISOString().split("T")[0];
     const endDate = new Date();
