@@ -79,7 +79,7 @@ async function getPredictedOdds(homeTeam: any, visitorTeam: any) {
   }
 }
 
-export const getFutureNbaGames = onSchedule("every 6 hours", async (event) => {
+export const getFutureNbaGames = onSchedule("every 1 hours", async (event) => {
   try {
     const today = new Date().toISOString().split("T")[0];
     const endDate = new Date();
@@ -159,7 +159,7 @@ export const getFutureNbaGames = onSchedule("every 6 hours", async (event) => {
   }
 });
 
-export const updateRecentNbaGames = onSchedule("every 6 hours", async (event) => {
+export const updateRecentNbaGames = onSchedule("every 1 hours", async (event) => {
   try {
     const today = new Date();
     const startDate = new Date(today);
