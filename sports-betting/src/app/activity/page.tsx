@@ -159,7 +159,11 @@ export default function ActivityPage() {
               <div
                 key={trade.id}
                 ref={index === trades.length - 1 ? lastTradeElementRef : null}
-                className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4"
+                className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm border ${
+                  trade.status === 'Pending' 
+                    ? 'border-yellow-400 dark:border-yellow-500 animate-glow-border' 
+                    : 'border-gray-200 dark:border-gray-700'
+                } p-4`}
               >
                 <div className="flex justify-between items-start mb-3">
                   <div>
