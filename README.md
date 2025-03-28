@@ -1,7 +1,5 @@
 # COMP413_SportsBetting
 
-# Test commit -- avopra2
-
 ## Features
 
 ### NBA Betting Analysis Function
