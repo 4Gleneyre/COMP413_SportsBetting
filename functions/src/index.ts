@@ -511,17 +511,64 @@ export const getLeaderboard = onCall(
 
       const usersSnapshot = await usersQuery.get();
       
-      // Process user documents to include only necessary data for leaderboard
-      const users = usersSnapshot.docs.map(doc => {
+      // Process each user document with complete trade information
+      const users = await Promise.all(usersSnapshot.docs.map(async doc => {
         const userData = doc.data();
+        const userId = doc.id;
+        
+        // Default values
+        let totalBets = 0;
+        let wonBets = 0;
+        let winRate = 0;
+        
+        // If the user has trades, count them and calculate win rate
+        if (userData.trades && Array.isArray(userData.trades) && userData.trades.length > 0) {
+          // Query the trades collection to get details about user's trades
+          const tradesSnapshot = await admin
+            .firestore()
+            .collection("trades")
+            .where(admin.firestore.FieldPath.documentId(), "in", 
+                   // Firestore "in" query has a limit of 10 items, slice if needed
+                   userData.trades.slice(0, Math.min(userData.trades.length, 10)))
+            .get();
+          
+          // Count total and won bets from the first batch
+          totalBets = tradesSnapshot.size;
+          wonBets = tradesSnapshot.docs.filter(trade => trade.data().status === "Won").length;
+          
+          // If user has more than 10 trades, we need multiple queries
+          if (userData.trades.length > 10) {
+            // Process the remaining trades in batches of 10
+            for (let i = 10; i < userData.trades.length; i += 10) {
+              const batch = userData.trades.slice(i, Math.min(i + 10, userData.trades.length));
+              
+              if (batch.length > 0) {
+                const batchSnapshot = await admin
+                  .firestore()
+                  .collection("trades")
+                  .where(admin.firestore.FieldPath.documentId(), "in", batch)
+                  .get();
+                
+                totalBets += batchSnapshot.size;
+                wonBets += batchSnapshot.docs.filter(trade => trade.data().status === "Won").length;
+              }
+            }
+          }
+          
+          // Calculate win rate if there are any bets
+          if (totalBets > 0) {
+            winRate = wonBets / totalBets;
+          }
+        }
+        
         return {
-          id: doc.id,
+          id: userId,
           username: userData.username || userData.displayName || 'Anonymous',
           totalPnL: userData.lifetimePnl || 0,
-          winRate: userData.winRate || 0,
-          totalBets: userData.totalBets || 0,
+          winRate: winRate,
+          totalBets: totalBets,
         };
-      });
+      }));
 
       // Return leaderboard data along with a flag indicating if there are more results
       return { 

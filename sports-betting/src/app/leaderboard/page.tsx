@@ -99,7 +99,18 @@ export default function LeaderboardPage() {
 
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
-      <h2 className="text-2xl font-bold mb-8">Top Performers</h2>
+      <h2 className="text-2xl font-bold mb-4">Top Performers</h2>
+      
+      <div className="flex justify-between items-center mb-3 px-4 text-sm font-semibold text-gray-600 dark:text-gray-400">
+        <div className="flex items-center gap-4">
+          <div className="w-8">Rank</div>
+          <div>Trader</div>
+        </div>
+        <div className="text-right">
+          Profit & Loss
+        </div>
+      </div>
+      
       <div className="space-y-2">
         {users.map((user, index) => (
           <div
