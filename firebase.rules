@@ -1,0 +1,52 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if the user is signed in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      // Allow users to read their own documents
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      
+      // Allow username lookup queries - This is the key change!
+      allow list: if isSignedIn() && 
+                   request.query.limit <= 1 && 
+                   request.query.offset == 0 &&
+                   'username' in request.query.filters;
+      
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      // Allow any update, including walletBalance changes, for now
+      allow update: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Events collection
+    match /events/{eventId} {
+      allow read: if true;  // Anyone can read events
+      allow write: if false;  // Writes are not permitted
+
+      // oddsHistory subcollection: Anyone can read
+      match /oddsHistory/{docId} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+
+    // Trades collection
+    match /trades/{tradeId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || 
+        get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.trades.hasAny([tradeId])
+      );
+      
+      // Allow anyone to create a trade
+      allow create: if true;
+      
+      allow update: if false;  // Only backend can update trades
+      allow delete: if false;  // Trades cannot be deleted
+    }
+  }
+}

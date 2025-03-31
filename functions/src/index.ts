@@ -705,3 +705,40 @@ export const getGameBettingAnalysis = onCall(
     }
   }
 );
+
+export const checkUsernameUnique = onCall(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+  },
+  async (request) => {
+    // Ensure the user is authenticated
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated.");
+    }
+
+    const { username } = request.data;
+
+    // Validate required input
+    if (!username || typeof username !== "string") {
+      throw new HttpsError("invalid-argument", "A valid username is required.");
+    }
+
+    try {
+      // Check if username already exists using admin SDK
+      const usersRef = admin.firestore().collection('users');
+      const querySnapshot = await usersRef
+        .where('username', '==', username)
+        .limit(1)
+        .get();
+      
+      // Return whether the username is unique (true if unique, false if taken)
+      return { 
+        isUnique: querySnapshot.empty,
+      };
+    } catch (error) {
+      console.error("Error checking username uniqueness:", error);
+      throw new HttpsError("internal", "Failed to check username uniqueness.");
+    }
+  }
+);

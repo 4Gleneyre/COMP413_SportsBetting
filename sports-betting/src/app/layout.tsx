@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Navbar } from "@/components/Navbar";
+import UsernameCheck from "@/components/UsernameCheck";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -22,6 +23,7 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-gray-900`}>
         <AuthProvider>
+          <UsernameCheck />
           <Navbar />
           <main className="container mx-auto p-4">
             {children}

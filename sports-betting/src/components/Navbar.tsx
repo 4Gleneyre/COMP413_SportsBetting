@@ -13,7 +13,7 @@ import Link from "next/link";
 import { usePathname } from 'next/navigation';
 
 export function Navbar() {
-  const { user, signInWithGoogle, logout } = useAuth();
+  const { user, username, signInWithGoogle, logout } = useAuth();
   const pathname = usePathname();
 
   const getLinkClassName = (path: string) => {
@@ -64,12 +64,17 @@ export function Navbar() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-10 w-10 rounded-full hover:bg-gray-800">
                   <Avatar className="h-10 w-10">
-                    <AvatarImage src={user.photoURL || undefined} alt={user.displayName || 'User'} />
-                    <AvatarFallback>{user.displayName?.[0] || 'U'}</AvatarFallback>
+                    <AvatarImage src={user.photoURL || undefined} alt={username || user.displayName || 'User'} />
+                    <AvatarFallback>{username?.[0] || user.displayName?.[0] || 'U'}</AvatarFallback>
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {username && (
+                  <div className="px-2 py-1.5 text-sm font-medium text-gray-500 dark:text-gray-400">
+                    @{username}
+                  </div>
+                )}
                 <Link href="/profile">
                   <DropdownMenuItem className="cursor-pointer">
                     Profile
