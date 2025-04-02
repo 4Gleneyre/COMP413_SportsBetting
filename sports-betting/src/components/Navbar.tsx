@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import Link from "next/link";
 import { usePathname } from 'next/navigation';
+import Image from "next/image";
 
 export function Navbar() {
   const { user, username, signInWithGoogle, logout } = useAuth();
@@ -25,8 +26,8 @@ export function Navbar() {
   return (
     <header className="bg-gray-900 text-white p-4 shadow-md">
       <div className="container mx-auto flex items-center justify-between">
-        <Link href="/" className="text-2xl font-bold hover:text-gray-200 transition-colors">
-          Sports Betting
+        <Link href="/" className="flex items-center hover:opacity-90 transition-opacity">
+          <Image src="/logo.png" alt="Meiyundong Logo" width={180} height={60} className="rounded-md" priority />
         </Link>
         
         <div className="flex items-center gap-6">
