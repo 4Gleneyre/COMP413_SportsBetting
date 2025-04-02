@@ -27,12 +27,12 @@ service cloud.firestore {
     match /events/{eventId} {
       allow read: if true;  // Anyone can read events
       allow write: if false;  // Writes are not permitted
-
-      // oddsHistory subcollection: Anyone can read
-      match /oddsHistory/{docId} {
-        allow read: if true;
-        allow write: if false;
-      }
+    }
+    
+    // Explicitly define the path to oddsHistory subcollection
+    match /events/{eventId}/oddsHistory/{docId} {
+      allow read: if true;
+      allow write: if false;
     }
 
     // Trades collection

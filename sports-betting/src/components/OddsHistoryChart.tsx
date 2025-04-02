@@ -122,7 +122,8 @@ export default function OddsHistoryChart({
         borderColor: 'rgba(59, 130, 246, 1)', // Blue
         backgroundColor: 'rgba(59, 130, 246, 0.2)',
         fill: false,
-        tension: 0.3
+        tension: 0.3,
+        pointRadius: 0 // Remove dots
       },
       {
         label: visitorTeamName,
@@ -130,7 +131,8 @@ export default function OddsHistoryChart({
         borderColor: 'rgba(239, 68, 68, 1)', // Red
         backgroundColor: 'rgba(239, 68, 68, 0.2)',
         fill: false,
-        tension: 0.3
+        tension: 0.3,
+        pointRadius: 0 // Remove dots
       }
     ]
   };
@@ -169,6 +171,9 @@ export default function OddsHistoryChart({
         title: {
           display: true,
           text: 'Date & Time'
+        },
+        ticks: {
+          maxTicksLimit: 10 // Limit to at most 10 ticks on x-axis
         }
       }
     }

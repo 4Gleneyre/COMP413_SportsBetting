@@ -85,46 +85,69 @@ function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
           </button>
         </div>
         
+        <div className="flex justify-between items-center mb-4">
+          <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium">
+            Basketball
+          </span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            {new Date(event.status).toLocaleDateString(undefined, {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit'
+            })}
+          </span>
+        </div>
+        
         <div className="mb-6">
-          <div className="flex justify-between items-center mb-2">
-            <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium">
-              Basketball
-            </span>
-            <span className="text-sm text-gray-500 dark:text-gray-400">
-              {new Date(event.status).toLocaleDateString(undefined, {
-                weekday: 'long',
-                month: 'long',
-                day: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit'
-              })}
-            </span>
-          </div>
-          <div className="my-8 grid grid-cols-[1fr,auto,1fr] gap-6 items-center">
-            <div className="flex flex-col items-center text-center">
-              <TeamLogo
-                abbreviation={event.home_team.abbreviation}
-                teamName={event.home_team.full_name}
-              />
-              <h3 className="text-xl font-bold mt-4">{event.home_team.full_name}</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{event.home_team.city}</p>
-            </div>
+          <h3 className="text-lg font-semibold mb-4">Place a Bet</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Select a team to bet on:</p>
+          
+          <div className="grid grid-cols-[1fr,auto,1fr] gap-4 items-center">
+            <button
+              onClick={() => onSelectTeam('home')}
+              className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group flex flex-col items-center h-40 w-full justify-between"
+            >
+              <div className="flex-1 flex items-center justify-center">
+                <TeamLogo
+                  abbreviation={event.home_team.abbreviation}
+                  teamName={event.home_team.full_name}
+                />
+              </div>
+              <div className="text-center">
+                <span className="block font-medium group-hover:text-blue-600 dark:group-hover:text-blue-400 truncate max-w-full">
+                  {event.home_team.full_name}
+                </span>
+                <span className="text-sm text-gray-500 dark:text-gray-400 mt-1 block">{event.homeTeamCurrentOdds}% chance</span>
+              </div>
+            </button>
             
             <div className="flex flex-col items-center">
-              <span className="text-2xl font-bold text-gray-500 dark:text-gray-400">VS</span>
+              <span className="text-lg font-bold text-gray-500 dark:text-gray-400">VS</span>
             </div>
             
-            <div className="flex flex-col items-center text-center">
-              <TeamLogo
-                abbreviation={event.visitor_team.abbreviation}
-                teamName={event.visitor_team.full_name}
-              />
-              <h3 className="text-xl font-bold mt-4">{event.visitor_team.full_name}</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{event.visitor_team.city}</p>
-            </div>
+            <button
+              onClick={() => onSelectTeam('visitor')}
+              className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group flex flex-col items-center h-40 w-full justify-between"
+            >
+              <div className="flex-1 flex items-center justify-center">
+                <TeamLogo
+                  abbreviation={event.visitor_team.abbreviation}
+                  teamName={event.visitor_team.full_name}
+                />
+              </div>
+              <div className="text-center">
+                <span className="block font-medium group-hover:text-blue-600 dark:group-hover:text-blue-400 truncate max-w-full">
+                  {event.visitor_team.full_name}
+                </span>
+                <span className="text-sm text-gray-500 dark:text-gray-400 mt-1 block">{event.visitorTeamCurrentOdds}% chance</span>
+              </div>
+            </button>
           </div>
-          
-          {/* Odds History Chart */}
+        </div>
+        
+        <div className="mb-6">
           <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
             <h3 className="text-lg font-semibold mb-4">Odds History</h3>
             <OddsHistoryChart 
@@ -134,7 +157,6 @@ function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
             />
           </div>
           
-          {/* AI Analysis Button */}
           <div className="mt-4 mb-6 flex justify-center">
             <button
               onClick={generateAnalysis}
@@ -160,7 +182,6 @@ function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
             </button>
           </div>
           
-          {/* Display Analysis with ReactMarkdown */}
           {analysis && (
             <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
               <h3 className="text-lg font-semibold mb-3">AI Betting Analysis</h3>
@@ -187,47 +208,11 @@ function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
             </div>
           )}
           
-          {/* Display Error if any */}
           {analysisError && (
             <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg">
               <p>{analysisError}</p>
             </div>
           )}
-        </div>
-        
-        <div className="mt-8">
-          <h3 className="text-lg font-semibold mb-4">Place a Bet</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Select a team to bet on:</p>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <button
-              onClick={() => onSelectTeam('home')}
-              className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group flex flex-col items-center"
-            >
-              <TeamLogo
-                abbreviation={event.home_team.abbreviation}
-                teamName={event.home_team.full_name}
-              />
-              <span className="mt-2 font-medium group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                {event.home_team.full_name}
-              </span>
-              <span className="text-sm text-gray-500 dark:text-gray-400 mt-1">{event.homeTeamCurrentOdds}% chance</span>
-            </button>
-            
-            <button
-              onClick={() => onSelectTeam('visitor')}
-              className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group flex flex-col items-center"
-            >
-              <TeamLogo
-                abbreviation={event.visitor_team.abbreviation}
-                teamName={event.visitor_team.full_name}
-              />
-              <span className="mt-2 font-medium group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                {event.visitor_team.full_name}
-              </span>
-              <span className="text-sm text-gray-500 dark:text-gray-400 mt-1">{event.visitorTeamCurrentOdds}% chance</span>
-            </button>
-          </div>
         </div>
       </div>
     </div>
