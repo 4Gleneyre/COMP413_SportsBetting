@@ -10,7 +10,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Sports Betting App",
+  title: "meiyundong",
   description: "A modern sports betting platform",
 };
 
