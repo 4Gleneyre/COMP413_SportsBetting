@@ -690,6 +690,8 @@ export default function Home() {
   const [filterDates, setFilterDates] = useState<[Date | null, Date | null]>([null, null]);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const { user } = useAuth();
+  const [topEvents, setTopEvents] = useState<Event[]>([]);
+  const [loadingTopEvents, setLoadingTopEvents] = useState(true);
 
   // Add debug logging for filterDates
   useEffect(() => {
@@ -834,8 +836,61 @@ export default function Home() {
    */
   useEffect(() => {
     fetchEvents();
+    fetchTopEvents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Fetch top 5 events with most bets
+   */
+  const fetchTopEvents = async () => {
+    try {
+      const eventsRef = collection(db, 'events');
+      const currentDate = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
+      
+      // Get events from current date onwards
+      const q = query(
+        eventsRef,
+        where('date', '>=', currentDate),
+        orderBy('date', 'asc'),
+        // We need to fetch more than 5 to sort by trades count
+        limit(20)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        // Convert to Event objects
+        let allEvents: Event[] = querySnapshot.docs.map((docSnap) => {
+          const { id, ...data } = docSnap.data();
+          return { id: docSnap.id, ...data } as Event;
+        });
+        
+        // Sort by number of trades (bets) and then by date
+        allEvents.sort((a, b) => {
+          // First sort by number of trades (most to least)
+          const aTradesCount = a.trades?.length || 0;
+          const bTradesCount = b.trades?.length || 0;
+          
+          if (bTradesCount !== aTradesCount) {
+            return bTradesCount - aTradesCount;
+          }
+          
+          // If number of trades is the same, sort by date (soonest first)
+          const aDate = new Date(a.status);
+          const bDate = new Date(b.status);
+          return aDate.getTime() - bDate.getTime();
+        });
+        
+        // Take top 5
+        setTopEvents(allEvents.slice(0, 5));
+      }
+    } catch (error) {
+      console.error('Error fetching top events:', error);
+    } finally {
+      setLoadingTopEvents(false);
+    }
+  };
 
   /**
    * Set up an IntersectionObserver on a sentinel <div> to trigger fetch for next events.
@@ -880,6 +935,81 @@ export default function Home() {
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
       <h2 className="text-3xl font-bold mb-8">Available Events</h2>
+      
+      {/* Top 5 Events Panel */}
+      <div className="mb-10">
+        <div className="flex items-center mb-4">
+          <h3 className="text-xl font-bold">Top 5 Events</h3>
+          <div className="ml-3 px-2 py-1 bg-red-600 text-white text-xs font-bold rounded">
+            TRENDING
+          </div>
+        </div>
+        
+        {loadingTopEvents ? (
+          <div className="animate-pulse grid grid-cols-1 md:grid-cols-5 gap-3">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="h-40 bg-gray-200 dark:bg-gray-700 rounded-lg" />
+            ))}
+          </div>
+        ) : topEvents.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            {topEvents.map((event, index) => (
+              <div
+                key={event.id}
+                className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors relative flex flex-col"
+                onClick={() => setSelectedEvent(event)}
+              >
+                <div className="absolute top-0 left-0 w-8 h-8 bg-red-600 flex items-center justify-center text-white font-bold rounded-br-lg z-10">
+                  {index + 1}
+                </div>
+                <div className="p-3 flex-grow">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="truncate font-semibold text-sm" style={{maxWidth: "80%"}}>
+                      {event.home_team.abbreviation} vs {event.visitor_team.abbreviation}
+                    </div>
+                    {event.trades && (
+                      <div className="flex items-center">
+                        <span className="text-sm font-bold text-red-500">{event.trades.length}</span>
+                        <span className="ml-1">
+                          🔥
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 text-xs">
+                    <div className="flex items-center">
+                      <TeamLogo
+                        abbreviation={event.home_team.abbreviation}
+                        teamName={event.home_team.full_name}
+                      />
+                      <span className="ml-1 truncate">{event.home_team.abbreviation}</span>
+                    </div>
+                    <div className="flex items-center justify-end">
+                      <span className="mr-1 truncate">{event.visitor_team.abbreviation}</span>
+                      <TeamLogo
+                        abbreviation={event.visitor_team.abbreviation}
+                        teamName={event.visitor_team.full_name}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-gray-100 dark:bg-gray-700 p-2 text-xs text-center">
+                  {new Date(event.status).toLocaleDateString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit'
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-gray-600 dark:text-gray-300 text-center p-4 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
+            No trending events available
+          </div>
+        )}
+      </div>
       
       {/* Search and Filter Controls */}
       <div className="mb-6">
@@ -930,16 +1060,12 @@ export default function Home() {
                       minute: '2-digit'
                     })}
                   </span>
-                  {event.trades && event.trades.length > 0 && (
-                    <div className="relative group">
-                      <span className="text-xl cursor-help">
+                  {event.trades && (
+                    <div className="flex items-center">
+                      <span className="text-sm font-bold text-red-500">{event.trades.length}</span>
+                      <span className="ml-1">
                         🔥
                       </span>
-                      <div className="absolute hidden group-hover:block right-0 top-full mt-2 px-4 py-2 bg-gray-900 text-white rounded-lg shadow-lg whitespace-nowrap z-10">
-                        <span className="text-sm">
-                          <span className="font-bold text-orange-400">{event.trades.length}</span> {event.trades.length === 1 ? 'user has' : 'users have'} bet on this game
-                        </span>
-                      </div>
                     </div>
                   )}
                 </div>

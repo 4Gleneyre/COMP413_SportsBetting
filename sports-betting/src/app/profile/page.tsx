@@ -218,7 +218,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [walletBalance, setWalletBalance] = useState(0);
   const [lifetimePnl, setLifetimePnl] = useState<number | null>(null);
-  const { user } = useAuth();
+  const { user, username } = useAuth();
   const [isAddFundsModalOpen, setIsAddFundsModalOpen] = useState(false);
 
   // Add debug log for trades state changes
@@ -383,7 +383,7 @@ export default function ProfilePage() {
               )}
               <div>
                 <p className="text-lg font-semibold">{user.displayName}</p>
-                <p className="text-gray-500 dark:text-gray-400">{user.email}</p>
+                <p className="text-gray-500 dark:text-gray-400">@{username || user.email}</p>
               </div>
             </div>
             
