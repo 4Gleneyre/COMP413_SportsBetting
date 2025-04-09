@@ -33,16 +33,16 @@ export function Navbar() {
         <div className="flex items-center gap-6">
           <nav className="hidden md:flex items-center gap-6">
             <Link 
-              href="/" 
-              className={getLinkClassName('/')}
-            >
-              Events
-            </Link>
-            <Link 
               href="/for-you" 
               className={getLinkClassName('/for-you')}
             >
               For You
+            </Link>
+            <Link 
+              href="/events" 
+              className={getLinkClassName('/events')}
+            >
+              Events
             </Link>
             <Link 
               href="/activity" 
