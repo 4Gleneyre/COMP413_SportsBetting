@@ -266,7 +266,7 @@ function TradeConfirmationModal({ betAmount, teamName, potentialPayout, event, s
               {suggestedEvents.map((suggestedEvent) => (
                 <div 
                   key={suggestedEvent.id}
-                  className="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-4 cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+                  className="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-lg p-4 cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
                   onClick={() => selectSuggestedEvent(suggestedEvent)}
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -389,7 +389,7 @@ function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
           <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium">
             Basketball
           </span>
-          <span className="text-sm text-gray-500 dark:text-gray-400">
+          <span className="text-sm text-gray-500 dark:text-gray-400 ml-8">
             {new Date(event.status).toLocaleDateString(undefined, {
               weekday: 'long',
               month: 'long',
@@ -452,8 +452,8 @@ function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
             <h3 className="text-lg font-semibold mb-4">Odds History</h3>
             <OddsHistoryChart 
               eventId={event.id.toString()}
-              homeTeamName={event.home_team.name}
-              visitorTeamName={event.visitor_team.name}
+              homeTeamName={event.home_team.full_name}
+              visitorTeamName={event.visitor_team.full_name}
             />
           </div>
           
@@ -465,7 +465,7 @@ function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
             >
               {isGeneratingAnalysis ? (
                 <>
-                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
@@ -934,82 +934,7 @@ export default function Home() {
 
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
-      <h2 className="text-3xl font-bold mb-8">Available Events</h2>
-      
-      {/* Top 5 Events Panel */}
-      <div className="mb-10">
-        <div className="flex items-center mb-4">
-          <h3 className="text-xl font-bold">Top 5 Events</h3>
-          <div className="ml-3 px-2 py-1 bg-red-600 text-white text-xs font-bold rounded">
-            TRENDING
-          </div>
-        </div>
-        
-        {loadingTopEvents ? (
-          <div className="animate-pulse grid grid-cols-1 md:grid-cols-5 gap-3">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="h-40 bg-gray-200 dark:bg-gray-700 rounded-lg" />
-            ))}
-          </div>
-        ) : topEvents.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            {topEvents.map((event, index) => (
-              <div
-                key={event.id}
-                className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors relative flex flex-col"
-                onClick={() => setSelectedEvent(event)}
-              >
-                <div className="absolute top-0 left-0 w-8 h-8 bg-red-600 flex items-center justify-center text-white font-bold rounded-br-lg z-10">
-                  {index + 1}
-                </div>
-                <div className="p-3 flex-grow">
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="truncate font-semibold text-sm" style={{maxWidth: "80%"}}>
-                      {event.home_team.abbreviation} vs {event.visitor_team.abbreviation}
-                    </div>
-                    {event.trades && (
-                      <div className="flex items-center">
-                        <span className="text-sm font-bold text-red-500">{event.trades.length}</span>
-                        <span className="ml-1">
-                          🔥
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-1 text-xs">
-                    <div className="flex items-center">
-                      <TeamLogo
-                        abbreviation={event.home_team.abbreviation}
-                        teamName={event.home_team.full_name}
-                      />
-                      <span className="ml-1 truncate">{event.home_team.abbreviation}</span>
-                    </div>
-                    <div className="flex items-center justify-end">
-                      <span className="mr-1 truncate">{event.visitor_team.abbreviation}</span>
-                      <TeamLogo
-                        abbreviation={event.visitor_team.abbreviation}
-                        teamName={event.visitor_team.full_name}
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-gray-100 dark:bg-gray-700 p-2 text-xs text-center">
-                  {new Date(event.status).toLocaleDateString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: '2-digit'
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-gray-600 dark:text-gray-300 text-center p-4 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
-            No trending events available
-          </div>
-        )}
-      </div>
+      <h2 className="text-3xl font-bold mb-8">Events</h2>
       
       {/* Search and Filter Controls */}
       <div className="mb-6">
@@ -1026,7 +951,7 @@ export default function Home() {
             className="p-3 border border-l-0 border-gray-300 dark:border-gray-600 rounded-r-lg bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${filterDates[0] || filterDates[1] ? 'text-blue-600' : 'text-gray-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L15 14.414V19a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4.586L3.293 6.707A1 1 0 013 6V4z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L15 14.414V19a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4.586L3.293 6.707A1 1 0 013 6V4z" />
             </svg>
           </button>
         </div>
@@ -1051,15 +976,6 @@ export default function Home() {
                   Basketball
                 </span>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
-                    {new Date(event.status).toLocaleDateString(undefined, {
-                      weekday: 'short',
-                      month: 'short',
-                      day: 'numeric',
-                      hour: 'numeric',
-                      minute: '2-digit'
-                    })}
-                  </span>
                   {event.trades && (
                     <div className="flex items-center">
                       <span className="text-sm font-bold text-red-500">{event.trades.length}</span>
@@ -1089,10 +1005,8 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="flex flex-col items-center gap-2">
-                  <div className="w-px h-8 bg-gray-200 dark:bg-gray-700" />
-                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400">VS</span>
-                  <div className="w-px h-8 bg-gray-200 dark:bg-gray-700" />
+                <div className="flex flex-col items-center justify-center">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">VS</div>
                 </div>
 
                 <div className="text-right p-4">
@@ -1112,6 +1026,19 @@ export default function Home() {
                   </div>
                 </div>
               </div>
+            </div>
+            
+            {/* Footer */}
+            <div className="p-3 bg-gray-50 dark:bg-gray-700 text-center text-xs mt-auto">
+              <span className="text-gray-500 dark:text-gray-400">
+                {new Date(event.status).toLocaleDateString(undefined, {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit'
+                })}
+              </span>
             </div>
           </div>
         ))}

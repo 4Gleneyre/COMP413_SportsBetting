@@ -39,6 +39,12 @@ export function Navbar() {
               Events
             </Link>
             <Link 
+              href="/for-you" 
+              className={getLinkClassName('/for-you')}
+            >
+              For You
+            </Link>
+            <Link 
               href="/activity" 
               className={getLinkClassName('/activity')}
             >
