@@ -6,6 +6,8 @@ import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Event } from '@/types/events';
 import Image from 'next/image';
+import GameInfoModal from '@/components/GameInfoModal';
+import BettingModal from '@/components/BettingModal';
 
 interface Trade {
   id: string;
@@ -220,6 +222,8 @@ export default function ProfilePage() {
   const [lifetimePnl, setLifetimePnl] = useState<number | null>(null);
   const { user, username } = useAuth();
   const [isAddFundsModalOpen, setIsAddFundsModalOpen] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' } | null>(null);
 
   // Add debug log for trades state changes
   useEffect(() => {
@@ -472,7 +476,10 @@ export default function ProfilePage() {
                   <div className="flex-grow space-y-4">
                     <div className="flex items-center gap-4">
                       {trade.event && (
-                        <div className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
+                        <div 
+                          className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg cursor-pointer"
+                          onClick={() => trade.event && setSelectedEvent(trade.event)}
+                        >
                           <TeamLogo
                             abbreviation={trade.selectedTeam === 'home' 
                               ? trade.event.home_team.abbreviation 
@@ -570,6 +577,27 @@ export default function ProfilePage() {
         onAddFunds={handleAddFunds}
         currentBalance={walletBalance}
       />
+
+      {/* Game Info Modal */}
+      {selectedEvent && (
+        <GameInfoModal
+          event={selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+          onSelectTeam={(team) => {
+            setSelectedBet({ event: selectedEvent, team });
+            setSelectedEvent(null);
+          }}
+        />
+      )}
+      
+      {/* Betting Modal */}
+      {selectedBet && (
+        <BettingModal
+          event={selectedBet.event}
+          selectedTeam={selectedBet.team}
+          onClose={() => setSelectedBet(null)}
+        />
+      )}
     </div>
   );
-} 
+}

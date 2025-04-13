@@ -13,6 +13,8 @@ import { db } from '@/lib/firebase';
 import type { Event } from '@/types/events';
 import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
+import GameInfoModal from '@/components/GameInfoModal';
+import BettingModal from '@/components/BettingModal';
 
 // Import the TeamLogo component from the main page
 function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: string }) {
@@ -33,6 +35,8 @@ function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: 
 export default function ForYou() {
   const [topEvents, setTopEvents] = useState<Event[]>([]);
   const [loadingTopEvents, setLoadingTopEvents] = useState(true);
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' } | null>(null);
   const { user } = useAuth();
 
   // Function to check if date is valid
@@ -139,6 +143,7 @@ export default function ForYou() {
                   <div
                     key={event.id}
                     className={`flex-shrink-0 w-64 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors relative ${medalStyle} flex flex-col h-96`}
+                    onClick={() => setSelectedEvent(event)}
                   >
                     {/* Ranking Badge */}
                     <div className="absolute top-0 left-0 w-8 h-8 bg-red-600 flex items-center justify-center text-white font-bold rounded-br-lg z-10">
@@ -238,6 +243,27 @@ export default function ForYou() {
             "Sign in to see personalized event recommendations."}
         </p>
       </div>
+      
+      {/* Game Info Modal */}
+      {selectedEvent && (
+        <GameInfoModal
+          event={selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+          onSelectTeam={(team) => {
+            setSelectedBet({ event: selectedEvent, team });
+            setSelectedEvent(null);
+          }}
+        />
+      )}
+      
+      {/* Betting Modal */}
+      {selectedBet && (
+        <BettingModal
+          event={selectedBet.event}
+          selectedTeam={selectedBet.team}
+          onClose={() => setSelectedBet(null)}
+        />
+      )}
     </div>
   );
 }
