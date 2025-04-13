@@ -436,6 +436,12 @@ export default function Events() {
 
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
+  // Function to check if date is valid
+  const isValidDate = (date: any): boolean => {
+    const d = new Date(date);
+    return d instanceof Date && !isNaN(d.getTime());
+  };
+
   // Handle event ID from URL
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -610,6 +616,9 @@ export default function Events() {
     );
   }
 
+  // Filter events with valid dates
+  const validEvents = events.filter(event => event.status && isValidDate(event.status));
+
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
       <h2 className="text-3xl font-bold mb-8">Events</h2>
@@ -636,13 +645,13 @@ export default function Events() {
       </div>
 
       {/* Events List */}
-      {events.length === 0 && !loading && (
+      {validEvents.length === 0 && !loading && (
         <p className="text-gray-600 dark:text-gray-300">
           No upcoming events found.
         </p>
       )}
       <div className="space-y-4">
-        {events.map((event) => (
+        {validEvents.map((event) => (
           <div
             key={event.id}
             className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors relative"

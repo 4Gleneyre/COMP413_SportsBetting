@@ -54,8 +54,17 @@ function TradeConfirmationModal({ betAmount, teamName, potentialPayout, event, s
   const [suggestedEvents, setSuggestedEvents] = useState<Event[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
   
+  // Function to check if date is valid
+  const isValidDate = (date: any): boolean => {
+    const d = new Date(date);
+    return d instanceof Date && !isNaN(d.getTime());
+  };
+
   // Format date for display
   const formatDateTime = (date: Date) => {
+    if (!isValidDate(date)) {
+      return "Date unavailable";
+    }
     return new Intl.DateTimeFormat('en-US', {
       weekday: 'short',
       month: 'short',
@@ -105,7 +114,7 @@ function TradeConfirmationModal({ betAmount, teamName, potentialPayout, event, s
           });
           
           // Filter out the current event and prioritize events with the same team
-          events = events.filter(e => e.id !== event.id)
+          events = events.filter(e => e.id !== event.id && e.status && isValidDate(e.status))
             .sort((a, b) => {
               const aHasSameTeam = a.home_team.id === event.home_team.id || 
                                   a.home_team.id === event.visitor_team.id ||
@@ -390,13 +399,13 @@ function GameInfoModal({ event, onClose, onSelectTeam }: GameInfoModalProps) {
             Basketball
           </span>
           <span className="text-sm text-gray-500 dark:text-gray-400 ml-8">
-            {new Date(event.status).toLocaleDateString(undefined, {
+            {isValidDate(event.status) ? new Date(event.status).toLocaleDateString(undefined, {
               weekday: 'long',
               month: 'long',
               day: 'numeric',
               hour: 'numeric',
               minute: '2-digit'
-            })}
+            }) : "Date unavailable"}
           </span>
         </div>
         
@@ -682,6 +691,7 @@ function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: 
 }
 
 export default function Home() {
+  const [showPopup, setShowPopup] = useState(false);
   const router = useRouter();
 
   useEffect(() => {

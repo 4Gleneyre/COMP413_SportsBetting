@@ -35,6 +35,12 @@ export default function ForYou() {
   const [loadingTopEvents, setLoadingTopEvents] = useState(true);
   const { user } = useAuth();
 
+  // Function to check if date is valid
+  const isValidDate = (date: any): boolean => {
+    const d = new Date(date);
+    return d instanceof Date && !isNaN(d.getTime());
+  };
+
   /**
    * Fetch top 5 events with most bets
    */
@@ -60,6 +66,9 @@ export default function ForYou() {
           const { id, ...data } = docSnap.data();
           return { id: docSnap.id, ...data } as Event;
         });
+        
+        // Filter out events with invalid dates
+        allEvents = allEvents.filter(event => event.status && isValidDate(event.status));
         
         // Sort by number of trades (bets) and then by date
         allEvents.sort((a, b) => {
@@ -136,15 +145,9 @@ export default function ForYou() {
                       #{index + 1}
                     </div>
                     
-                    {/* Header with date and fire emoji */}
-                    <div className="p-3 pt-4 border-b border-gray-200 dark:border-gray-700">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-500 dark:text-gray-400 ml-8">
-                          {new Date(event.status).toLocaleDateString(undefined, {
-                            month: 'short',
-                            day: 'numeric',
-                          })}
-                        </span>
+                    {/* Header with fire emoji */}
+                    <div className="p-3 pt-4">
+                      <div className="flex items-center justify-end">
                         {event.trades && (
                           <div className="flex items-center">
                             <span className="text-sm font-bold text-red-500">{event.trades.length}</span>
@@ -202,13 +205,16 @@ export default function ForYou() {
                       </div>
                     </div>
                     
-                    {/* Footer */}
-                    <div className="p-3 bg-gray-50 dark:bg-gray-700 text-center text-xs mt-auto">
+                    {/* Footer with date and time */}
+                    <div className="mt-auto p-3 bg-gray-50 dark:bg-gray-700 text-center text-xs">
                       <span className="text-gray-500 dark:text-gray-400">
-                        {new Date(event.status).toLocaleTimeString(undefined, {
+                        {isValidDate(event.status) ? new Date(event.status).toLocaleDateString(undefined, {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
                           hour: 'numeric',
                           minute: '2-digit'
-                        })}
+                        }) : 'Date unavailable'}
                       </span>
                     </div>
                   </div>
