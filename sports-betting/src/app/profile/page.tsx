@@ -710,24 +710,24 @@ export default function ProfilePage() {
           </div>
 
           {/* Posts display */}
-          {console.log('Rendering posts section. loadingPosts:', loadingPosts, 'posts.length:', posts.length)}
+          {(() => { console.log('Rendering posts section. loadingPosts:', loadingPosts, 'posts.length:', posts.length); return null; })()}
           {loadingPosts ? (
             <div className="animate-pulse space-y-4">
-              {console.log('Showing loading skeleton')}
+              {(() => { console.log('Showing loading skeleton'); return null; })()}
               {[1, 2, 3].map((i) => (
                 <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded-xl" />
               ))}
             </div>
           ) : posts.length === 0 ? (
             <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
-              {console.log('No posts found to display')}
+              {(() => { console.log('No posts found to display'); return null; })()}
               <p className="text-gray-500 dark:text-gray-400">
                 You haven't created any posts yet.
               </p>
             </div>
           ) : (
             <div className="space-y-4">
-              {console.log('About to map through posts:', posts)}
+              {(() => { console.log('About to map through posts:', posts); return null; })()}
               {posts.map((post) => {
                 console.log('Rendering post:', post.id, post);
                 return (
