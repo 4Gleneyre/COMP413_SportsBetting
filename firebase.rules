@@ -48,5 +48,12 @@ service cloud.firestore {
       allow update: if false;  // Only backend can update trades
       allow delete: if false;  // Trades cannot be deleted
     }
+    
+    // Posts collection - Allow all users to see all posts
+    match /posts/{postId} {
+      allow read: if true;  // Anyone can read posts
+      allow create: if isSignedIn();  // Only authenticated users can create posts
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;  // Users can only update/delete their own posts
+    }
   }
 }

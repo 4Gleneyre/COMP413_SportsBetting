@@ -706,6 +706,62 @@ export const getGameBettingAnalysis = onCall(
   }
 );
 
+export const createPost = onCall(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+  },
+  async (request) => {
+    const { content } = request.data;
+    const auth = request.auth;
+
+    if (!auth) {
+      throw new HttpsError("unauthenticated", "User must be logged in to create a post");
+    }
+
+    if (!content || typeof content !== 'string' || content.trim() === '') {
+      throw new HttpsError("invalid-argument", "Post content is required");
+    }
+
+    try {
+      // Get user data for username
+      const userDoc = await db.collection("users").doc(auth.uid).get();
+      if (!userDoc.exists) {
+        throw new HttpsError("not-found", "User not found");
+      }
+      
+      const userData = userDoc.data();
+      const username = userData?.username || auth.token.name || auth.token.email?.split('@')[0] || 'User';
+      
+      // Create the post document
+      const postData = {
+        content: content.trim(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        userId: auth.uid,
+        username: username,
+        userPhotoURL: auth.token.picture || null
+      };
+      
+      // Add the post to Firestore
+      const docRef = await db.collection("posts").add(postData);
+      
+      return {
+        success: true,
+        postId: docRef.id,
+        post: {
+          id: docRef.id,
+          ...postData,
+          // Return a client timestamp for immediate display
+          createdAt: new Date().toISOString()
+        }
+      };
+    } catch (error) {
+      console.error("Error creating post:", error);
+      throw new HttpsError("internal", "Failed to create post");
+    }
+  }
+);
+
 export const checkUsernameUnique = onCall(
   {
     region: "us-central1",
