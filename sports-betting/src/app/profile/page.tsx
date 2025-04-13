@@ -356,7 +356,7 @@ export default function ProfilePage() {
     console.log('Rendering: Loading view');
     return (
       <div className="max-w-3xl mx-auto py-8 px-4">
-        <h2 className="text-2xl font-bold mb-8">Your Trade History</h2>
+        <h2 className="text-2xl font-bold mb-8">Your Profile</h2>
         <div className="animate-pulse space-y-4">
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-24 bg-gray-200 dark:bg-gray-700 rounded-xl" />
