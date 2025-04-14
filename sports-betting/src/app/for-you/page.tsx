@@ -141,16 +141,13 @@ export default function ForYou() {
     }
     
     // Listen for custom event when event is selected from TradeConfirmationModal
-    const handleEventSelected = (e: Event) => {
-      // Type assertion to access custom event detail
-      const customEvent = e as CustomEvent;
-      
-      if (customEvent.detail && typeof customEvent.detail === 'object' && 'eventId' in customEvent.detail) {
-        const { eventId } = customEvent.detail;
+    const handleEventSelected = (e: CustomEvent) => {
+      if (e.detail && typeof e.detail === 'object' && 'eventId' in e.detail) {
+        const { eventId } = e.detail;
         // eventId can be string or number, fetchEventById will handle it
         fetchEventById(eventId);
       } else {
-        console.error('Invalid custom event format', customEvent);
+        console.error('Invalid custom event format', e);
       }
     };
     

@@ -71,25 +71,65 @@ export default function Events() {
     return d instanceof Date && !isNaN(d.getTime());
   };
 
-  // Handle event ID from URL
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const urlSearchParams = new URLSearchParams(window.location.search);
-      const eventId = urlSearchParams.get('event');
-      
-      if (eventId && events.length > 0) {
-        // Find the event in the loaded events
-        const eventToSelect = events.find(e => e.id === eventId);
-        if (eventToSelect) {
-          setSelectedEvent(eventToSelect);
-          
-          // Clean up the URL without reloading the page
-          const newUrl = window.location.pathname;
-          window.history.replaceState({}, document.title, newUrl);
-        }
-      }
+  /**
+   * Fetch event by ID from Firestore
+   */
+  const fetchEventById = async (eventId: string | number | null) => {
+    if (eventId === null || eventId === undefined) {
+      console.error('No event ID provided');
+      return;
     }
-  }, [events]);
+    
+    // Always convert to string for Firestore
+    const docId = String(eventId);
+    
+    try {
+      const eventDoc = await getDoc(doc(db, 'events', docId));
+      if (eventDoc.exists()) {
+        const eventData = eventDoc.data() as Event;
+        eventData.id = eventDoc.id;
+        setSelectedEvent(eventData);
+      } else {
+        console.error('Event document does not exist');
+      }
+    } catch (error) {
+      console.error('Error fetching event by ID:', error);
+    }
+  };
+
+  // Handle event ID from URL and custom events
+  useEffect(() => {
+    // Check URL for event parameter on page load
+    const urlParams = new URLSearchParams(window.location.search);
+    const eventId = urlParams.get('event');
+    
+    if (eventId) {
+      fetchEventById(eventId);
+      
+      // Clean up the URL without reloading the page
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, newUrl);
+    }
+    
+    // Listen for custom event when event is selected from TradeConfirmationModal
+    const handleEventSelected = (e: CustomEvent) => {
+      if (e.detail && typeof e.detail === 'object' && 'eventId' in e.detail) {
+        const { eventId } = e.detail;
+        // eventId can be string or number, fetchEventById will handle it
+        fetchEventById(eventId);
+      } else {
+        console.error('Invalid custom event format', e);
+      }
+    };
+    
+    // Add event listener for custom event
+    window.addEventListener('eventSelected', handleEventSelected as EventListener);
+    
+    // Clean up event listener
+    return () => {
+      window.removeEventListener('eventSelected', handleEventSelected as EventListener);
+    };
+  }, []);
 
   // Reset pagination when filters change
   useEffect(() => {
