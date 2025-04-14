@@ -52,10 +52,10 @@ function TaggedEventItem({ eventId }: { eventId: string }) {
       }));
     }
   };
-
+  
   if (loading) {
     return (
-      <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded-md animate-pulse"></div>
+      <div className="min-w-[300px] h-32 bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse"></div>
     );
   }
 
@@ -65,20 +65,56 @@ function TaggedEventItem({ eventId }: { eventId: string }) {
 
   return (
     <div 
-      className="bg-gray-50 dark:bg-gray-800 rounded-md p-2 border border-gray-200 dark:border-gray-700 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700/70 transition-colors cursor-pointer"
+      className="flex-shrink-0 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-lg p-4 cursor-pointer transition-all hover:shadow-md min-w-[300px] max-w-[400px] hover:border-blue-400 dark:hover:border-blue-500"
       onClick={handleEventClick}
     >
-      <div className="flex items-center gap-2">
-        <div className="flex items-center">
-          <TeamLogo 
-            abbreviation={event.home_team.abbreviation}
-            teamName={event.home_team.full_name}
-          />
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="bg-gray-50 dark:bg-gray-600/50 p-2 rounded-full">
+              <TeamLogo
+                abbreviation={event.home_team.abbreviation}
+                teamName={event.home_team.full_name}
+              />
+            </div>
+            <div>
+              <span className="font-medium block">{event.home_team.full_name}</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">{event.homeTeamCurrentOdds || '--'}% odds</span>
+            </div>
+          </div>
+          
+          <div className="flex-none text-center mx-2">
+            <span className="text-gray-500 dark:text-gray-400 font-medium">vs</span>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <div>
+              <span className="font-medium block">{event.visitor_team.full_name}</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">{event.visitorTeamCurrentOdds || '--'}% odds</span>
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-600/50 p-2 rounded-full">
+              <TeamLogo
+                abbreviation={event.visitor_team.abbreviation}
+                teamName={event.visitor_team.full_name}
+              />
+            </div>
+          </div>
         </div>
-        <span className="text-xs font-medium">{event.home_team.full_name} vs {event.visitor_team.full_name}</span>
-      </div>
-      <div className="text-xs text-gray-500 dark:text-gray-400">
-        {new Date(event.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+        
+        <div className="mt-1 flex justify-between items-center">
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            {new Date(event.date).toLocaleDateString(undefined, { 
+              weekday: 'short',
+              month: 'short', 
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit'
+            })}
+          </span>
+          <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full text-xs font-medium">
+            View event →
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -182,11 +218,21 @@ export default function PostItem({ post }: { post: Post }) {
       
       {/* Tagged Events */}
       {post.taggedEvents && post.taggedEvents.length > 0 && (
-        <div className="mt-3 space-y-2">
-          <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Tagged events:</p>
-          <div className="space-y-2">
-            {post.taggedEvents.map(eventId => (
-              <TaggedEventItem key={eventId} eventId={eventId} />
+        <div className="mt-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm text-gray-600 dark:text-gray-300 font-medium">Tagged events:</p>
+            {post.taggedEvents.length > 1 && (
+              <p className="text-xs text-blue-600 dark:text-blue-400">
+                Scroll to see more →
+              </p>
+            )}
+          </div>
+          <div className="flex overflow-x-auto pb-2 -mx-2 px-2 gap-4 snap-x">
+            {post.taggedEvents.map((eventId, index) => (
+              <TaggedEventItem 
+                key={eventId} 
+                eventId={eventId} 
+              />
             ))}
           </div>
         </div>
