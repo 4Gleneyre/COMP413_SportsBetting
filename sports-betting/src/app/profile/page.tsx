@@ -10,6 +10,7 @@ import GameInfoModal from '@/components/GameInfoModal';
 import BettingModal from '@/components/BettingModal';
 import { functions } from '@/lib/firebase';
 import { httpsCallable } from 'firebase/functions';
+import PostItem, { Post } from '@/components/PostItem';
 
 interface Trade {
   id: string;
@@ -21,16 +22,6 @@ interface Trade {
   status: string;
   userId: string;
   event?: Event;
-}
-
-interface Post {
-  id: string;
-  content: string;
-  createdAt: Timestamp;
-  userId: string;
-  username: string;
-  userPhotoURL?: string;
-  taggedEvents?: string[]; // Array of event IDs that are tagged in this post
 }
 
 interface UserData {
@@ -208,54 +199,6 @@ function parseLocalDate(dateString: string) {
   return date;
 }
 
-function TaggedEventItem({ eventId }: { eventId: string }) {
-  const [event, setEvent] = useState<Event | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function fetchEvent() {
-      try {
-        const eventDoc = await getDoc(doc(db, 'events', eventId));
-        if (eventDoc.exists()) {
-          setEvent(eventDoc.data() as Event);
-        }
-      } catch (error) {
-        console.error('Error fetching event:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchEvent();
-  }, [eventId]);
-
-  if (loading) {
-    return (
-      <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded-md animate-pulse"></div>
-    );
-  }
-
-  if (!event) {
-    return null;
-  }
-
-  return (
-    <div className="bg-gray-50 dark:bg-gray-800 rounded-md p-2 border border-gray-200 dark:border-gray-700 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700/70 transition-colors">
-      <div className="flex items-center gap-2">
-        <div className="flex items-center">
-          <TeamLogo 
-            abbreviation={event.home_team.abbreviation}
-            teamName={event.home_team.full_name}
-          />
-        </div>
-        <span className="text-xs font-medium">{event.home_team.full_name} vs {event.visitor_team.full_name}</span>
-      </div>
-      <div className="text-xs text-gray-500 dark:text-gray-400">
-        {new Date(event.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-      </div>
-    </div>
-  );
-}
-
 export default function ProfilePage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -279,6 +222,66 @@ export default function ProfilePage() {
   useEffect(() => {
     console.log('Trades state updated:', trades);
   }, [trades]);
+
+  /**
+   * Fetch event by ID from Firestore
+   */
+  const fetchEventById = async (eventId: string | number | null) => {
+    if (eventId === null || eventId === undefined) {
+      console.error('No event ID provided');
+      return;
+    }
+    
+    // Always convert to string for Firestore
+    const docId = String(eventId);
+    
+    try {
+      const eventDoc = await getDoc(doc(db, 'events', docId));
+      if (eventDoc.exists()) {
+        const eventData = eventDoc.data() as Event;
+        eventData.id = eventDoc.id;
+        setSelectedEvent(eventData);
+      } else {
+        console.error('Event document does not exist');
+      }
+    } catch (error) {
+      console.error('Error fetching event by ID:', error);
+    }
+  };
+
+  // Handle event ID from URL and custom events
+  useEffect(() => {
+    // Check URL for event parameter on page load
+    const urlParams = new URLSearchParams(window.location.search);
+    const eventId = urlParams.get('event');
+    
+    if (eventId) {
+      fetchEventById(eventId);
+      
+      // Clean up the URL without reloading the page
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, newUrl);
+    }
+    
+    // Listen for custom event when event is selected from TradeConfirmationModal
+    const handleEventSelected = (e: CustomEvent) => {
+      if (e.detail && typeof e.detail === 'object' && 'eventId' in e.detail) {
+        const { eventId } = e.detail;
+        // eventId can be string or number, fetchEventById will handle it
+        fetchEventById(eventId);
+      } else {
+        console.error('Invalid custom event format', e);
+      }
+    };
+    
+    // Add event listener for custom event
+    window.addEventListener('eventSelected', handleEventSelected as EventListener);
+    
+    // Clean up event listener
+    return () => {
+      window.removeEventListener('eventSelected', handleEventSelected as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     async function fetchUserData() {
@@ -687,7 +690,7 @@ export default function ProfilePage() {
                   onClick={toggleEventSelector}
                   className={`flex items-center px-3 py-1.5 text-sm rounded-lg border ${
                     showEventSelector || selectedEventIds.length > 0
-                      ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800'
+                      ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
                       : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600'
                   }`}
                 >
@@ -813,88 +816,9 @@ export default function ProfilePage() {
           ) : (
             <div className="space-y-4">
               {(() => { console.log('About to map through posts:', posts); return null; })()}
-              {posts.map((post) => {
-                console.log('Rendering post:', post.id, post);
-                return (
-                  <div 
-                    key={post.id}
-                    className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 hover:border-gray-300 dark:hover:border-gray-600 transition-all hover:shadow-md"
-                  >
-                    {/* Post Header with User Info */}
-                    <div className="flex items-center mb-3">
-                      {post.userPhotoURL ? (
-                        <Image
-                          src={post.userPhotoURL}
-                          alt={post.username}
-                          width={40}
-                          height={40}
-                          className="rounded-full mr-3"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-600 mr-3 flex items-center justify-center text-gray-600 dark:text-gray-300 font-semibold">
-                          {post.username.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                      <div>
-                        <p className="font-medium">{post.username}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {(() => {
-                            // Helper function to format date consistently
-                            const formatDate = (date: Date) => {
-                              return date.toLocaleDateString(undefined, {
-                                weekday: 'short',
-                                month: 'short',
-                                day: 'numeric',
-                                hour: 'numeric',
-                                minute: '2-digit'
-                              });
-                            };
-                            
-                            try {
-                              // Handle different timestamp formats
-                              if (typeof post.createdAt === 'string') {
-                                return formatDate(new Date(post.createdAt));
-                              } else if (post.createdAt && typeof post.createdAt.toDate === 'function') {
-                                // Firebase Timestamp object
-                                return formatDate(post.createdAt.toDate());
-                              } else if (post.createdAt instanceof Date) {
-                                return formatDate(post.createdAt);
-                              } else {
-                                // Fallback for any other format - try to convert to Date
-                                const timestamp = post.createdAt as any;
-                                if (timestamp && timestamp.seconds) {
-                                  // Handle Firestore Timestamp format {seconds: number, nanoseconds: number}
-                                  return formatDate(new Date(timestamp.seconds * 1000));
-                                }
-                                return "Unknown date";
-                              }
-                            } catch (error) {
-                              console.error("Error formatting date:", error);
-                              return "Date error";
-                            }
-                          })()}
-                        </p>
-                      </div>
-                    </div>
-                    {/* Post Content */}
-                    <div className="text-gray-800 dark:text-gray-200 whitespace-pre-line">
-                      {post.content}
-                    </div>
-                    
-                    {/* Tagged Events */}
-                    {post.taggedEvents && post.taggedEvents.length > 0 && (
-                      <div className="mt-3 space-y-2">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Tagged events:</p>
-                        <div className="space-y-2">
-                          {post.taggedEvents.map(eventId => (
-                            <TaggedEventItem key={eventId} eventId={eventId} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {posts.map((post) => (
+                <PostItem key={post.id} post={post} />
+              ))}
             </div>
           )}
         </div>
@@ -971,17 +895,17 @@ export default function ProfilePage() {
                               : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                           }`}>
                             {trade.status === 'Pending' && (
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
                             )}
                             {trade.status === 'Won' && (
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
                             )}
                             {trade.status === 'Lost' && (
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
                             )}
