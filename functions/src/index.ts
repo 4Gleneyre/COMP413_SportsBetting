@@ -712,7 +712,7 @@ export const createPost = onCall(
     maxInstances: 10,
   },
   async (request) => {
-    const { content } = request.data;
+    const { content, taggedEvents } = request.data;
     const auth = request.auth;
 
     if (!auth) {
@@ -721,6 +721,11 @@ export const createPost = onCall(
 
     if (!content || typeof content !== 'string' || content.trim() === '') {
       throw new HttpsError("invalid-argument", "Post content is required");
+    }
+
+    // Validate taggedEvents if provided
+    if (taggedEvents && (!Array.isArray(taggedEvents) || taggedEvents.some(id => typeof id !== 'string'))) {
+      throw new HttpsError("invalid-argument", "Tagged events must be an array of event IDs");
     }
 
     try {
@@ -739,11 +744,25 @@ export const createPost = onCall(
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         userId: auth.uid,
         username: username,
-        userPhotoURL: auth.token.picture || null
+        userPhotoURL: auth.token.picture || null,
+        taggedEvents: taggedEvents || [] // Add tagged events to the post data
       };
       
       // Add the post to Firestore
       const docRef = await db.collection("posts").add(postData);
+      
+      // For each tagged event, update its posts array
+      if (taggedEvents && taggedEvents.length > 0) {
+        const batch = db.batch();
+        for (const eventId of taggedEvents) {
+          const eventRef = db.collection("events").doc(eventId);
+          // Use array union to add the post ID to the event's posts array
+          batch.update(eventRef, {
+            posts: admin.firestore.FieldValue.arrayUnion(docRef.id)
+          });
+        }
+        await batch.commit();
+      }
       
       return {
         success: true,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, where, doc, getDoc, Timestamp, updateDoc, addDoc, setDoc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc, Timestamp, updateDoc, addDoc, setDoc, serverTimestamp, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Event } from '@/types/events';
@@ -30,6 +30,7 @@ interface Post {
   userId: string;
   username: string;
   userPhotoURL?: string;
+  taggedEvents?: string[]; // Array of event IDs that are tagged in this post
 }
 
 interface UserData {
@@ -207,6 +208,54 @@ function parseLocalDate(dateString: string) {
   return date;
 }
 
+function TaggedEventItem({ eventId }: { eventId: string }) {
+  const [event, setEvent] = useState<Event | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchEvent() {
+      try {
+        const eventDoc = await getDoc(doc(db, 'events', eventId));
+        if (eventDoc.exists()) {
+          setEvent(eventDoc.data() as Event);
+        }
+      } catch (error) {
+        console.error('Error fetching event:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchEvent();
+  }, [eventId]);
+
+  if (loading) {
+    return (
+      <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded-md animate-pulse"></div>
+    );
+  }
+
+  if (!event) {
+    return null;
+  }
+
+  return (
+    <div className="bg-gray-50 dark:bg-gray-800 rounded-md p-2 border border-gray-200 dark:border-gray-700 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700/70 transition-colors">
+      <div className="flex items-center gap-2">
+        <div className="flex items-center">
+          <TeamLogo 
+            abbreviation={event.home_team.abbreviation}
+            teamName={event.home_team.full_name}
+          />
+        </div>
+        <span className="text-xs font-medium">{event.home_team.full_name} vs {event.visitor_team.full_name}</span>
+      </div>
+      <div className="text-xs text-gray-500 dark:text-gray-400">
+        {new Date(event.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+      </div>
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -218,9 +267,13 @@ export default function ProfilePage() {
   const [isAddFundsModalOpen, setIsAddFundsModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' } | null>(null);
-  const [activeTab, setActiveTab] = useState<'trades' | 'posts'>('trades');
+  const [activeTab, setActiveTab] = useState<'trades' | 'posts'>('posts');
   const [newPostContent, setNewPostContent] = useState('');
   const [isSubmittingPost, setIsSubmittingPost] = useState(false);
+  const [availableEvents, setAvailableEvents] = useState<Event[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
+  const [showEventSelector, setShowEventSelector] = useState(false);
 
   // Add debug log for trades state changes
   useEffect(() => {
@@ -334,7 +387,8 @@ export default function ProfilePage() {
             createdAt: data.createdAt,
             userId: data.userId,
             username: data.username,
-            userPhotoURL: data.userPhotoURL
+            userPhotoURL: data.userPhotoURL,
+            taggedEvents: data.taggedEvents
           });
         });
         
@@ -349,6 +403,65 @@ export default function ProfilePage() {
 
     fetchUserPosts();
   }, [user]);
+
+  // Function to fetch events for tagging
+  const fetchEventsForTagging = async () => {
+    if (!user) return;
+    
+    setLoadingEvents(true);
+    try {
+      console.log('Fetching events for tagging');
+      const eventsRef = collection(db, 'events');
+      // Get upcoming events (where date is in the future)
+      const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
+      const q = query(
+        eventsRef, 
+        where('date', '>=', today),
+        orderBy('date', 'asc'),
+        // Limit to prevent fetching too many events
+        limit(20)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      console.log('Events query results:', querySnapshot.size, 'events found');
+      
+      const eventsData: Event[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data() as Event;
+        data.id = doc.id; // Ensure ID is set
+        eventsData.push(data);
+      });
+      
+      console.log('Events for tagging:', eventsData);
+      setAvailableEvents(eventsData);
+    } catch (error) {
+      console.error('Error fetching events for tagging:', error);
+    } finally {
+      setLoadingEvents(false);
+    }
+  };
+
+  // Fetch events when showing the event selector
+  useEffect(() => {
+    if (showEventSelector) {
+      fetchEventsForTagging();
+    }
+  }, [showEventSelector]);
+
+  // Toggle the event selector
+  const toggleEventSelector = () => {
+    setShowEventSelector(prev => !prev);
+  };
+
+  const toggleEventSelection = (eventId: string) => {
+    setSelectedEventIds(prev => {
+      if (prev.includes(eventId)) {
+        return prev.filter(id => id !== eventId);
+      } else {
+        return [...prev, eventId];
+      }
+    });
+  };
 
   const handleAddFunds = async (amount: number) => {
     if (!user) {
@@ -388,7 +501,7 @@ export default function ProfilePage() {
     try {
       // Call the Cloud Function to create a post
       const createPostFunction = httpsCallable(functions, 'createPost');
-      const result = await createPostFunction({ content: newPostContent.trim() });
+      const result = await createPostFunction({ content: newPostContent.trim(), taggedEvents: selectedEventIds });
       
       // Access the response data
       const responseData = result.data as {
@@ -403,6 +516,7 @@ export default function ProfilePage() {
         
         // Clear the input
         setNewPostContent('');
+        setSelectedEventIds([]);
       } else {
         throw new Error('Failed to create post');
       }
@@ -530,16 +644,6 @@ export default function ProfilePage() {
       <div className="mb-6">
         <div className="flex justify-center border-b border-gray-200 dark:border-gray-700">
           <button
-            onClick={() => setActiveTab('trades')}
-            className={`py-3 px-5 text-base font-medium border-b-2 transition-colors ${
-              activeTab === 'trades'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-            }`}
-          >
-            Trade History
-          </button>
-          <button
             onClick={() => setActiveTab('posts')}
             className={`py-3 px-5 text-base font-medium border-b-2 transition-colors ${
               activeTab === 'posts'
@@ -549,8 +653,252 @@ export default function ProfilePage() {
           >
             Posts
           </button>
+          <button
+            onClick={() => setActiveTab('trades')}
+            className={`py-3 px-5 text-base font-medium border-b-2 transition-colors ${
+              activeTab === 'trades'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+            }`}
+          >
+            Trade History
+          </button>
         </div>
       </div>
+
+      {/* Posts Tab */}
+      {activeTab === 'posts' && (
+        <div className="space-y-6">
+          {/* Post creation form */}
+          <div className="mb-6 bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+            <form onSubmit={handleSubmitPost}>
+              <div className="mb-3">
+                <textarea
+                  value={newPostContent}
+                  onChange={(e) => setNewPostContent(e.target.value)}
+                  placeholder="Share your thoughts on upcoming games..."
+                  className="w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows={3}
+                ></textarea>
+              </div>
+              <div className="flex justify-between items-center">
+                <button
+                  type="button"
+                  onClick={toggleEventSelector}
+                  className={`flex items-center px-3 py-1.5 text-sm rounded-lg border ${
+                    showEventSelector || selectedEventIds.length > 0
+                      ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800'
+                      : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  {selectedEventIds.length > 0 
+                    ? `${selectedEventIds.length} Event${selectedEventIds.length > 1 ? 's' : ''} Tagged` 
+                    : 'Tag Events'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newPostContent.trim() || isSubmittingPost}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmittingPost ? 'Posting...' : 'Post'}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Event selector */}
+          {showEventSelector && (
+            <div className="mt-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-sm font-medium">Tag events in your post</h3>
+                {loadingEvents && (
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Loading...</span>
+                )}
+              </div>
+              
+              {availableEvents.length === 0 && !loadingEvents ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">No upcoming events found.</p>
+              ) : (
+                <div className="overflow-x-auto pb-2">
+                  <div className="flex space-x-3" style={{ minWidth: 'max-content' }}>
+                    {loadingEvents ? (
+                      // Loading placeholders
+                      Array(4).fill(0).map((_, i) => (
+                        <div key={i} className="w-52 h-28 bg-gray-100 dark:bg-gray-700 rounded-md animate-pulse flex-shrink-0"></div>
+                      ))
+                    ) : (
+                      // Actual events
+                      availableEvents.map((event, index) => {
+                        const isSelected = selectedEventIds.includes(event.id);
+                        // Add medal styling for top events (gold, silver, bronze)
+                        const medalStyles = index < 3 ? [
+                          'border-yellow-400 dark:border-yellow-600 shadow-yellow-100 dark:shadow-yellow-900/20',
+                          'border-gray-300 dark:border-gray-500 shadow-gray-100 dark:shadow-gray-900/20',
+                          'border-amber-700 dark:border-amber-800 shadow-amber-100 dark:shadow-amber-900/20'
+                        ][index] : '';
+                        
+                        return (
+                          <div 
+                            key={event.id}
+                            onClick={() => toggleEventSelection(event.id)}
+                            className={`w-52 p-3 rounded-lg cursor-pointer flex-shrink-0 relative border-2 transition-all ${
+                              isSelected 
+                                ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-400 dark:border-blue-600 shadow-md' 
+                                : `bg-white dark:bg-gray-800 border-transparent hover:border-gray-200 dark:hover:border-gray-700 ${medalStyles}`
+                            }`}
+                          >
+                            {/* Medal indicator for top events */}
+                            {index < 3 && (
+                              <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold" 
+                                style={{ 
+                                  backgroundColor: index === 0 ? '#FFD700' : index === 1 ? '#C0C0C0' : '#CD7F32',
+                                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                                }}>
+                                {index + 1}
+                              </div>
+                            )}
+                            
+                            <div className="flex justify-between items-start mb-2">
+                              <div className="flex items-center">
+                                <TeamLogo 
+                                  abbreviation={event.home_team.abbreviation}
+                                  teamName={event.home_team.full_name}
+                                />
+                              </div>
+                              {isSelected && (
+                                <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                              )}
+                            </div>
+                            <div className="text-sm font-medium line-clamp-2 h-10 mb-2">
+                              {event.home_team.full_name} vs {event.visitor_team.full_name}
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              {new Date(event.date).toLocaleDateString(undefined, { 
+                                weekday: 'short', 
+                                month: 'short', 
+                                day: 'numeric' 
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Posts display */}
+          {(() => { console.log('Rendering posts section. loadingPosts:', loadingPosts, 'posts.length:', posts.length); return null; })()}
+          {loadingPosts ? (
+            <div className="animate-pulse space-y-4">
+              {(() => { console.log('Showing loading skeleton'); return null; })()}
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded-xl" />
+              ))}
+            </div>
+          ) : posts.length === 0 ? (
+            <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
+              {(() => { console.log('No posts found to display'); return null; })()}
+              <p className="text-gray-500 dark:text-gray-400">
+                You haven't created any posts yet.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {(() => { console.log('About to map through posts:', posts); return null; })()}
+              {posts.map((post) => {
+                console.log('Rendering post:', post.id, post);
+                return (
+                  <div 
+                    key={post.id}
+                    className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 hover:border-gray-300 dark:hover:border-gray-600 transition-all hover:shadow-md"
+                  >
+                    {/* Post Header with User Info */}
+                    <div className="flex items-center mb-3">
+                      {post.userPhotoURL ? (
+                        <Image
+                          src={post.userPhotoURL}
+                          alt={post.username}
+                          width={40}
+                          height={40}
+                          className="rounded-full mr-3"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-600 mr-3 flex items-center justify-center text-gray-600 dark:text-gray-300 font-semibold">
+                          {post.username.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div>
+                        <p className="font-medium">{post.username}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {(() => {
+                            // Helper function to format date consistently
+                            const formatDate = (date: Date) => {
+                              return date.toLocaleDateString(undefined, {
+                                weekday: 'short',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit'
+                              });
+                            };
+                            
+                            try {
+                              // Handle different timestamp formats
+                              if (typeof post.createdAt === 'string') {
+                                return formatDate(new Date(post.createdAt));
+                              } else if (post.createdAt && typeof post.createdAt.toDate === 'function') {
+                                // Firebase Timestamp object
+                                return formatDate(post.createdAt.toDate());
+                              } else if (post.createdAt instanceof Date) {
+                                return formatDate(post.createdAt);
+                              } else {
+                                // Fallback for any other format - try to convert to Date
+                                const timestamp = post.createdAt as any;
+                                if (timestamp && timestamp.seconds) {
+                                  // Handle Firestore Timestamp format {seconds: number, nanoseconds: number}
+                                  return formatDate(new Date(timestamp.seconds * 1000));
+                                }
+                                return "Unknown date";
+                              }
+                            } catch (error) {
+                              console.error("Error formatting date:", error);
+                              return "Date error";
+                            }
+                          })()}
+                        </p>
+                      </div>
+                    </div>
+                    {/* Post Content */}
+                    <div className="text-gray-800 dark:text-gray-200 whitespace-pre-line">
+                      {post.content}
+                    </div>
+                    
+                    {/* Tagged Events */}
+                    {post.taggedEvents && post.taggedEvents.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Tagged events:</p>
+                        <div className="space-y-2">
+                          {post.taggedEvents.map(eventId => (
+                            <TaggedEventItem key={eventId} eventId={eventId} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Trade History Tab */}
       {activeTab === 'trades' && (
@@ -676,131 +1024,6 @@ export default function ProfilePage() {
             </div>
           )}
         </>
-      )}
-
-      {/* Posts Tab */}
-      {activeTab === 'posts' && (
-        <div className="space-y-6">
-          {/* Post creation form */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              handleSubmitPost(e);
-              return false;
-            }}>
-              <div className="mb-4">
-                <textarea
-                  value={newPostContent}
-                  onChange={(e) => setNewPostContent(e.target.value)}
-                  placeholder="What's on your mind about sports betting?"
-                  className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-transparent focus:border-blue-500 dark:focus:border-blue-400 focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400 outline-none min-h-[100px]"
-                  required
-                />
-              </div>
-              <div className="flex justify-end">
-                <button
-                  type="submit"
-                  disabled={isSubmittingPost || !newPostContent.trim()}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSubmittingPost ? 'Posting...' : 'Post'}
-                </button>
-              </div>
-            </form>
-          </div>
-
-          {/* Posts display */}
-          {(() => { console.log('Rendering posts section. loadingPosts:', loadingPosts, 'posts.length:', posts.length); return null; })()}
-          {loadingPosts ? (
-            <div className="animate-pulse space-y-4">
-              {(() => { console.log('Showing loading skeleton'); return null; })()}
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded-xl" />
-              ))}
-            </div>
-          ) : posts.length === 0 ? (
-            <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
-              {(() => { console.log('No posts found to display'); return null; })()}
-              <p className="text-gray-500 dark:text-gray-400">
-                You haven't created any posts yet.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {(() => { console.log('About to map through posts:', posts); return null; })()}
-              {posts.map((post) => {
-                console.log('Rendering post:', post.id, post);
-                return (
-                  <div 
-                    key={post.id}
-                    className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 hover:border-gray-300 dark:hover:border-gray-600 transition-all"
-                  >
-                    {/* Post Header with User Info */}
-                    <div className="flex items-center mb-3">
-                      {post.userPhotoURL ? (
-                        <Image
-                          src={post.userPhotoURL}
-                          alt={post.username}
-                          width={40}
-                          height={40}
-                          className="rounded-full mr-3"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-600 mr-3 flex items-center justify-center text-gray-600 dark:text-gray-300 font-semibold">
-                          {post.username.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                      <div>
-                        <p className="font-medium">{post.username}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {(() => {
-                            // Helper function to format date consistently
-                            const formatDate = (date: Date) => {
-                              return date.toLocaleDateString(undefined, {
-                                weekday: 'short',
-                                month: 'short',
-                                day: 'numeric',
-                                hour: 'numeric',
-                                minute: '2-digit'
-                              });
-                            };
-                            
-                            try {
-                              // Handle different timestamp formats
-                              if (typeof post.createdAt === 'string') {
-                                return formatDate(new Date(post.createdAt));
-                              } else if (post.createdAt && typeof post.createdAt.toDate === 'function') {
-                                // Firebase Timestamp object
-                                return formatDate(post.createdAt.toDate());
-                              } else if (post.createdAt instanceof Date) {
-                                return formatDate(post.createdAt);
-                              } else {
-                                // Fallback for any other format - try to convert to Date
-                                const timestamp = post.createdAt as any;
-                                if (timestamp && timestamp.seconds) {
-                                  // Handle Firestore Timestamp format {seconds: number, nanoseconds: number}
-                                  return formatDate(new Date(timestamp.seconds * 1000));
-                                }
-                                return "Unknown date";
-                              }
-                            } catch (error) {
-                              console.error("Error formatting date:", error);
-                              return "Date error";
-                            }
-                          })()}
-                        </p>
-                      </div>
-                    </div>
-                    {/* Post Content */}
-                    <div className="text-gray-800 dark:text-gray-200 whitespace-pre-line">
-                      {post.content}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
       )}
 
       <AddFundsModal

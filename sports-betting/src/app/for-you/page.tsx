@@ -8,6 +8,8 @@ import {
   where,
   orderBy,
   limit,
+  doc,
+  getDoc,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Event } from '@/types/events';
@@ -100,11 +102,67 @@ export default function ForYou() {
     }
   };
 
+  /**
+   * Fetch event by ID from Firestore
+   */
+  const fetchEventById = async (eventId: string | number | null) => {
+    if (eventId === null || eventId === undefined) {
+      console.error('No event ID provided');
+      return;
+    }
+    
+    // Always convert to string for Firestore
+    const docId = String(eventId);
+    
+    try {
+      const eventDoc = await getDoc(doc(db, 'events', docId));
+      if (eventDoc.exists()) {
+        const eventData = eventDoc.data() as Event;
+        eventData.id = eventDoc.id;
+        setSelectedEvent(eventData);
+      } else {
+        console.error('Event document does not exist');
+      }
+    } catch (error) {
+      console.error('Error fetching event by ID:', error);
+    }
+  };
+
   // Fetch top events on component mount
   useEffect(() => {
     fetchTopEvents();
+    
+    // Check URL for event parameter on page load
+    const urlParams = new URLSearchParams(window.location.search);
+    const eventId = urlParams.get('event');
+    
+    if (eventId) {
+      fetchEventById(eventId);
+    }
+    
+    // Listen for custom event when event is selected from TradeConfirmationModal
+    const handleEventSelected = (e: Event) => {
+      // Type assertion to access custom event detail
+      const customEvent = e as CustomEvent;
+      
+      if (customEvent.detail && typeof customEvent.detail === 'object' && 'eventId' in customEvent.detail) {
+        const { eventId } = customEvent.detail;
+        // eventId can be string or number, fetchEventById will handle it
+        fetchEventById(eventId);
+      } else {
+        console.error('Invalid custom event format', customEvent);
+      }
+    };
+    
+    // Add event listener for custom event
+    window.addEventListener('eventSelected', handleEventSelected as EventListener);
+    
+    // Clean up event listener
+    return () => {
+      window.removeEventListener('eventSelected', handleEventSelected as EventListener);
+    };
   }, []);
-
+  
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
       <h2 className="text-3xl font-bold mb-8">For You Feed</h2>

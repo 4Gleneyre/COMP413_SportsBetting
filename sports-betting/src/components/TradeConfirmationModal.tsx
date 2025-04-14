@@ -140,11 +140,27 @@ export default function TradeConfirmationModal({
   };
 
   const selectSuggestedEvent = async (suggestedEvent: Event) => {
+    // Close the confirmation modal first
     onClose();
     
-    // We can use the event directly since we have its full data
-    // Update URL so other components can handle it
-    window.location.href = `/?event=${suggestedEvent.id}`;
+    // Ensure we have a valid event ID (can be either string or number)
+    if (!suggestedEvent || suggestedEvent.id === undefined || suggestedEvent.id === null) {
+      console.error('Invalid event data:', suggestedEvent);
+      return;
+    }
+    
+    // Always convert the ID to a string
+    const eventId = String(suggestedEvent.id);
+    
+    // Update the URL with the event ID parameter without redirecting
+    const url = new URL(window.location.href);
+    url.searchParams.set('event', eventId);
+    window.history.pushState({}, '', url);
+    
+    // Dispatch a custom event to notify that the URL has been updated with a new event ID
+    window.dispatchEvent(new CustomEvent('eventSelected', { 
+      detail: { eventId } 
+    }));
   };
 
   return (
