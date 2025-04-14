@@ -89,7 +89,7 @@ export default function TradeConfirmationModal({
           where('date', '>=', startDateStr),
           where('date', '<=', endDateStr),
           orderBy('date', 'asc'),
-          limit(5)
+          limit(10) // Increased limit to have more options to filter from
         ];
         
         const q = query(eventsRef, ...constraints);
@@ -101,8 +101,14 @@ export default function TradeConfirmationModal({
             return { id: docSnap.id, ...data } as Event;
           });
           
+          // Ensure the current event is properly excluded by comparing IDs as strings
+          const currentEventId = String(event.id);
+          
           // Filter out the current event and prioritize events with the same team
-          events = events.filter(e => e.id !== event.id && e.status && isValidDate(e.status))
+          events = events.filter(e => {
+            const eventId = String(e.id);
+            return eventId !== currentEventId && e.status && isValidDate(e.status);
+          })
             .sort((a, b) => {
               const aHasSameTeam = a.home_team.id === event.home_team.id || 
                                   a.home_team.id === event.visitor_team.id ||
@@ -124,6 +130,11 @@ export default function TradeConfirmationModal({
             });
           
           setSuggestedEvents(events.slice(0, 3)); // Limit to 3 suggestions
+          
+          // If we have less than 3 suggested events after filtering, try to fetch more
+          if (events.length < 3) {
+            console.log('Not enough suggested events after filtering, consider increasing the initial query limit');
+          }
         }
       } catch (error) {
         console.error('Error fetching suggested events:', error);
