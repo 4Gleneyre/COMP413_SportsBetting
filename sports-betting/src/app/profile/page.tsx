@@ -321,8 +321,17 @@ export default function ProfilePage() {
             
             // Fetch associated event
             console.log('Fetching event:', tradeData.eventId);
-            const eventDoc = await getDoc(doc(db, 'events', tradeData.eventId));
-            const eventData = eventDoc.exists() ? eventDoc.data() as Event : undefined;
+            // Listen for real-time updates to this event
+            const unsub = onSnapshot(doc(db, 'events', tradeData.eventId), (eventDoc) => {
+              if (eventDoc.exists()) {
+                const eventData = eventDoc.data() as Event;
+                eventData.id = eventDoc.id;
+                // Update the trade's event details with real-time data
+                setTrades(prevTrades => prevTrades.map(t => t.id === tradeDoc.id ? { ...t, event: eventData } : t));
+              }
+            });
+            // Store unsub if you need to clean up listeners later
+            // (optional: push to an array for cleanup on component unmount)
             
             if (eventData) {
               console.log('Event data found for trade');

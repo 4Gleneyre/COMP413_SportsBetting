@@ -53,6 +53,17 @@ export default function BettingModal({ event, selectedTeam, onClose }: BettingMo
     fetchUserBalance();
   }, [user]);
 
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'events', event.id), (eventDoc) => {
+      if (eventDoc.exists()) {
+        setEventOdds(eventDoc.data() as Event);
+      }
+    }, (error) => {
+      console.error('Error listening for event odds:', error);
+    });
+    return () => unsub();
+  }, [event.id]);
+
   const handlePlaceBet = async () => {
     if (!user) {
       setShowAuthAlert(true);

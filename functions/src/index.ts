@@ -394,9 +394,41 @@ export const placeBet = onCall({
     // Update the user document with all changes
     transaction.update(userRef, userUpdates);
 
-    // Update the event document with the new trade ID.
+    // --- DYNAMIC ODDS LOGIC ---
+    // Always read the current state from the event document
+    let homeBetAmount = typeof eventData.homeBetAmount === "number" ? eventData.homeBetAmount : 0;
+    let visitorBetAmount = typeof eventData.visitorBetAmount === "number" ? eventData.visitorBetAmount : 0;
+    // Increment the correct team's bet amount
+    if (selectedTeam === "home") {
+      homeBetAmount += betAmount;
+    } else {
+      visitorBetAmount += betAmount;
+    }
+    // Calculate the total bet pool
+    const totalBet = homeBetAmount + visitorBetAmount;
+    // Market odds: payout ratio based on proportion of money bet
+    // If no bets on a team, set odds to a default high value (e.g., 1000)
+    const marketHomeOdds = homeBetAmount > 0 ? (100 * totalBet / homeBetAmount) : 1000;
+    const marketVisitorOdds = visitorBetAmount > 0 ? (100 * totalBet / visitorBetAmount) : 1000;
+    // Retrieve AI odds (prefer stored, fallback to current odds, fallback to 50)
+    const aiHomeOdds = typeof eventData.homeTeamAiOdds === "number" ? eventData.homeTeamAiOdds : (typeof eventData.homeTeamCurrentOdds === "number" ? eventData.homeTeamCurrentOdds : 50);
+    const aiVisitorOdds = typeof eventData.visitorTeamAiOdds === "number" ? eventData.visitorTeamAiOdds : (typeof eventData.visitorTeamCurrentOdds === "number" ? eventData.visitorTeamCurrentOdds : 50);
+    // Set alpha (weight for AI odds vs market odds)
+    const alpha = typeof eventData.oddsAlpha === "number" ? eventData.oddsAlpha : 0.5;
+    // Combine odds: odds = alpha * ai_odds + (1-alpha) * market_odds
+    const newHomeOdds = alpha * aiHomeOdds + (1 - alpha) * marketHomeOdds;
+    const newVisitorOdds = alpha * aiVisitorOdds + (1 - alpha) * marketVisitorOdds;
+    // Atomically update event document with new state
     transaction.update(eventRef, {
-      trades: admin.firestore.FieldValue.arrayUnion(tradeRef.id)
+      trades: admin.firestore.FieldValue.arrayUnion(tradeRef.id),
+      homeBetAmount,
+      visitorBetAmount,
+      homeTeamCurrentOdds: newHomeOdds,
+      visitorTeamCurrentOdds: newVisitorOdds,
+      homeTeamAiOdds: aiHomeOdds, // Store for future reference
+      visitorTeamAiOdds: aiVisitorOdds,
+      oddsAlpha: alpha,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     return { 

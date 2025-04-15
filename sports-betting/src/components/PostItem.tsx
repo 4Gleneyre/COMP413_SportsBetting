@@ -24,19 +24,17 @@ function TaggedEventItem({ eventId }: { eventId: string }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchEvent() {
-      try {
-        const eventDoc = await getDoc(doc(db, 'events', eventId));
-        if (eventDoc.exists()) {
-          setEvent(eventDoc.data() as Event);
-        }
-      } catch (error) {
-        console.error('Error fetching event:', error);
-      } finally {
-        setLoading(false);
+    // Listen for real-time updates to this event
+    const unsub = onSnapshot(doc(db, 'events', eventId), (eventDoc) => {
+      if (eventDoc.exists()) {
+        setEvent(eventDoc.data() as Event);
       }
-    }
-    fetchEvent();
+      setLoading(false);
+    }, (error) => {
+      console.error('Error listening for event:', error);
+      setLoading(false);
+    });
+    return () => unsub();
   }, [eventId]);
 
   const handleEventClick = () => {

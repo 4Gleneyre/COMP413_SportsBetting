@@ -53,8 +53,8 @@ export default function GameInfoModal({ event, onClose, onSelectTeam }: GameInfo
       
       // Call the Cloud Function
       const result = await getGameBettingAnalysisFunction({
-        homeTeam: event.home_team.full_name,
-        awayTeam: event.visitor_team.full_name,
+        homeTeam: eventData ? eventData.home_team.full_name : event.home_team.full_name,
+        awayTeam: eventData ? eventData.visitor_team.full_name : event.visitor_team.full_name,
         gameDate: gameDate
       });
       
