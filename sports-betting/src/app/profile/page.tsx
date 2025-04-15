@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, where, doc, getDoc, Timestamp, updateDoc, addDoc, setDoc, serverTimestamp, orderBy, limit } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc, Timestamp, updateDoc, addDoc, setDoc, serverTimestamp, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Event } from '@/types/events';
@@ -312,50 +312,60 @@ export default function ProfilePage() {
         // Fetch all trades
         const tradesData: Trade[] = [];
         for (const tradeId of userTrades) {
-          console.log('Fetching trade:', tradeId);
-          const tradeDoc = await getDoc(doc(db, 'trades', tradeId));
-          
-          if (tradeDoc.exists()) {
-            const tradeData = tradeDoc.data() as Omit<Trade, 'id'>;
-            console.log('Trade data found:', tradeData);
-            
-            // Fetch associated event
-            console.log('Fetching event:', tradeData.eventId);
-            // Listen for real-time updates to this event
-            const unsub = onSnapshot(doc(db, 'events', tradeData.eventId), (eventDoc) => {
-              if (eventDoc.exists()) {
-                const eventData = eventDoc.data() as Event;
-                eventData.id = eventDoc.id;
-                // Update the trade's event details with real-time data
-                setTrades(prevTrades => prevTrades.map(t => t.id === tradeDoc.id ? { ...t, event: eventData } : t));
-              }
-            });
-            // Store unsub if you need to clean up listeners later
-            // (optional: push to an array for cleanup on component unmount)
-            
-            if (eventData) {
-              console.log('Event data found for trade');
-              // Add datetime property to event data by combining date and time
-              if (eventData.date && !eventData.datetime) {
-                // Use date + time if available, or just date with a default time
-                eventData.datetime = eventData.time 
-                  ? `${eventData.date}T${eventData.time}` 
-                  : `${eventData.date}T00:00:00`;
-              }
-            } else {
-              console.log('No event data found for trade');
-            }
+  console.log('Fetching trade:', tradeId);
+  const tradeDoc = await getDoc(doc(db, 'trades', tradeId));
 
-            tradesData.push({
-              id: tradeDoc.id,
-              ...tradeData,
-              createdAt: tradeData.createdAt,
-              event: eventData
-            });
-          } else {
-            console.log('Trade document not found:', tradeId);
-          }
+  if (tradeDoc.exists()) {
+    const tradeData = tradeDoc.data() as Omit<Trade, 'id'>;
+    console.log('Trade data found:', tradeData);
+
+    // Fetch associated event (initial fetch)
+    let eventData: Event | undefined = undefined;
+    try {
+      const eventDoc = await getDoc(doc(db, 'events', tradeData.eventId));
+      if (eventDoc.exists()) {
+        eventData = eventDoc.data() as Event;
+        eventData.id = eventDoc.id;
+        // Add datetime property to event data by combining date and time
+        if (eventData.date && !eventData.datetime) {
+          eventData.datetime = eventData.time
+            ? `${eventData.date}T${eventData.time}`
+            : `${eventData.date}T00:00:00`;
         }
+      } else {
+        console.log('No event data found for trade');
+      }
+    } catch (err) {
+      console.error('Error fetching event data:', err);
+    }
+
+    // Listen for real-time updates to this event
+    const unsub = onSnapshot(doc(db, 'events', tradeData.eventId), (eventDoc) => {
+      if (eventDoc.exists()) {
+        const updatedEventData = eventDoc.data() as Event;
+        updatedEventData.id = eventDoc.id;
+        // Add datetime property to event data by combining date and time
+        if (updatedEventData.date && !updatedEventData.datetime) {
+          updatedEventData.datetime = updatedEventData.time
+            ? `${updatedEventData.date}T${updatedEventData.time}`
+            : `${updatedEventData.date}T00:00:00`;
+        }
+        setTrades(prevTrades => prevTrades.map(t => t.id === tradeDoc.id ? { ...t, event: updatedEventData } : t));
+      }
+    });
+    // Store unsub if you need to clean up listeners later
+    // (optional: push to an array for cleanup on component unmount)
+
+    tradesData.push({
+      id: tradeDoc.id,
+      ...tradeData,
+      createdAt: tradeData.createdAt,
+      event: eventData
+    });
+  } else {
+    console.log('Trade document not found:', tradeId);
+  }
+}
 
         console.log('Final trades data:', tradesData);
         // Sort trades by date (newest first)

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Event } from '@/types/events';
 import { db, functions } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { httpsCallable } from "firebase/functions";
 import { useAuth } from '@/contexts/AuthContext';
 import TradeConfirmationModal from './TradeConfirmationModal';
@@ -14,6 +14,7 @@ export interface BettingModalProps {
 }
 
 export default function BettingModal({ event, selectedTeam, onClose }: BettingModalProps) {
+  const [eventOdds, setEventOdds] = useState<any>(null);
   const [betAmount, setBetAmount] = useState<string>('');
   const [showAuthAlert, setShowAuthAlert] = useState(false);
   const [showBalanceAlert, setShowBalanceAlert] = useState(false);
