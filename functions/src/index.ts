@@ -416,8 +416,22 @@ export const placeBet = onCall({
     // Set alpha (weight for AI odds vs market odds)
     const alpha = typeof eventData.oddsAlpha === "number" ? eventData.oddsAlpha : 0.5;
     // Combine odds: odds = alpha * ai_odds + (1-alpha) * market_odds
-    const newHomeOdds = alpha * aiHomeOdds + (1 - alpha) * marketHomeOdds;
-    const newVisitorOdds = alpha * aiVisitorOdds + (1 - alpha) * marketVisitorOdds;
+    let rawHomeOdds = alpha * aiHomeOdds + (1 - alpha) * marketHomeOdds;
+    let rawVisitorOdds = alpha * aiVisitorOdds + (1 - alpha) * marketVisitorOdds;
+    // --- Smoothing factor beta ---
+    const beta = 0.1; // Maximum allowed change in either direction
+    // Smooth home odds
+    let prevHomeOdds = typeof eventData.homeTeamCurrentOdds === "number" ? eventData.homeTeamCurrentOdds : rawHomeOdds;
+    let newHomeOdds = rawHomeOdds;
+    if (Math.abs(rawHomeOdds - prevHomeOdds) > beta) {
+      newHomeOdds = prevHomeOdds + Math.sign(rawHomeOdds - prevHomeOdds) * beta;
+    }
+    // Smooth visitor odds
+    let prevVisitorOdds = typeof eventData.visitorTeamCurrentOdds === "number" ? eventData.visitorTeamCurrentOdds : rawVisitorOdds;
+    let newVisitorOdds = rawVisitorOdds;
+    if (Math.abs(rawVisitorOdds - prevVisitorOdds) > beta) {
+      newVisitorOdds = prevVisitorOdds + Math.sign(rawVisitorOdds - prevVisitorOdds) * beta;
+    }
     // Atomically update event document with new state
     transaction.update(eventRef, {
       trades: admin.firestore.FieldValue.arrayUnion(tradeRef.id),
@@ -429,6 +443,22 @@ export const placeBet = onCall({
       visitorTeamAiOdds: aiVisitorOdds,
       oddsAlpha: alpha,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // --- Update all previous trades for this event with new stake value ---
+    const tradesSnapshot = await db.collection("trades")
+      .where("eventId", "==", eventId)
+      .where("status", "==", "Pending")
+      .get();
+    tradesSnapshot.forEach(tradeDoc => {
+      const trade = tradeDoc.data();
+      // Only update if the odds have changed (avoid divide by zero)
+      let oldOdds = trade.selectedOdds;
+      let newOdds = trade.selectedTeam === "home" ? newHomeOdds : newVisitorOdds;
+      if (typeof oldOdds === "number" && typeof newOdds === "number" && oldOdds > 0) {
+        const newStakeValue = trade.amount * (newOdds / oldOdds);
+        transaction.update(tradeDoc.ref, { currentStakeValue: newStakeValue });
+      }
     });
 
     return { 
