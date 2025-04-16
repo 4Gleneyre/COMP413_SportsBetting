@@ -11,5 +11,7 @@ export interface Post {
   userId: string;
   username: string;
   userPhotoURL?: string;
+  mediaUrl?: string; // URL to the uploaded image or video
+  mediaType?: 'image' | 'video'; // Type of media
   taggedEvents?: string[]; // Array of event IDs that are tagged in this post
 }

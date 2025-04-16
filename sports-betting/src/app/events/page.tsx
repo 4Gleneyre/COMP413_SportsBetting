@@ -26,6 +26,8 @@ import BettingModal from '@/components/BettingModal';
 import OddsHistoryChart from '@/components/OddsHistoryChart';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+// Import the shared event fetching utility
+import { fetchEvents, fetchEventById, formatEventDate } from '@/utils/eventFetching';
 
 // Import the TeamLogo component from the main page
 function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: string }) {
@@ -72,22 +74,17 @@ export default function Events() {
   };
 
   /**
-   * Fetch event by ID from Firestore
+   * Fetch event by ID from Firestore - now using shared utility
    */
-  const fetchEventById = async (eventId: string | number | null) => {
+  const handleFetchEventById = async (eventId: string | number | null) => {
     if (eventId === null || eventId === undefined) {
       console.error('No event ID provided');
       return;
     }
     
-    // Always convert to string for Firestore
-    const docId = String(eventId);
-    
     try {
-      const eventDoc = await getDoc(doc(db, 'events', docId));
-      if (eventDoc.exists()) {
-        const eventData = eventDoc.data() as Event;
-        eventData.id = eventDoc.id;
+      const eventData = await fetchEventById(eventId);
+      if (eventData) {
         setSelectedEvent(eventData);
       } else {
         console.error('Event document does not exist');
@@ -104,7 +101,7 @@ export default function Events() {
     const eventId = urlParams.get('event');
     
     if (eventId) {
-      fetchEventById(eventId);
+      handleFetchEventById(eventId);
       
       // Clean up the URL without reloading the page
       const newUrl = window.location.pathname;
@@ -116,7 +113,7 @@ export default function Events() {
       if (e.detail && typeof e.detail === 'object' && 'eventId' in e.detail) {
         const { eventId } = e.detail;
         // eventId can be string or number, fetchEventById will handle it
-        fetchEventById(eventId);
+        handleFetchEventById(eventId);
       } else {
         console.error('Invalid custom event format', e);
       }
@@ -138,14 +135,14 @@ export default function Events() {
     setEvents([]);
     setHasMore(true);
     lastDocRef.current = null;
-    fetchEvents();
+    loadEvents();
   }, [searchQuery, filterDates]);
 
   /**
-   * Fetch the next batch of events (10 at a time).
+   * Fetch the next batch of events (10 at a time) using shared utility
    */
-  const fetchEvents = async () => {
-    console.log('fetchEvents called - current lastDoc:', lastDocRef.current ? { id: lastDocRef.current.id, date: lastDocRef.current.data().date } : null);
+  const loadEvents = async () => {
+    console.log('loadEvents called - current lastDoc:', lastDocRef.current ? { id: lastDocRef.current.id, date: lastDocRef.current.data().date } : null);
     if (!hasMore) {
       return;
     }
@@ -153,125 +150,56 @@ export default function Events() {
     setIsFetchingMore(true);
 
     try {
-      const eventsRef = collection(db, 'events');
-      let constraints: any[] = [
-        orderBy('date', 'asc'),
-        orderBy('__name__', 'asc'),
-        limit(10)
-      ];
-      
-      // Add date filter if a date range is selected
-      if (filterDates[0]) {
-        const startDateStr = filterDates[0].toISOString().split('T')[0]; // Format: YYYY-MM-DD
-        constraints.push(where('date', '>=', startDateStr));
-        if (filterDates[1]) {
-          const endDateStr = filterDates[1].toISOString().split('T')[0]; // Format: YYYY-MM-DD
-          constraints.push(where('date', '<=', endDateStr));
-        }
-      } else {
-        const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
-        constraints.push(where('date', '>=', today));
-      }
-
-      // Add pagination if there's a last document
-      if (lastDocRef.current) {
-        constraints.push(startAfter(lastDocRef.current.data().date, lastDocRef.current.id));
-      }
-
-      // Debug logging
-      console.log('Query Debug Info:');
-      console.log('Events Reference:', {
-        path: eventsRef.path,
-        id: eventsRef.id,
-        type: eventsRef.type,
+      const result = await fetchEvents({
+        filterDates,
+        lastDoc: lastDocRef.current,
+        pageSize: 10
       });
-      console.log('Constraints:', constraints.map(c => ({
-        type: c.type,
-        field: c.field,
-        value: c.value,
-        direction: c.direction, // for orderBy
-        limit: c.limit, // for limit
-      })));
-      console.log('Last Doc:', lastDocRef.current ? { id: lastDocRef.current.id, date: lastDocRef.current.data().date } : null);
 
-      let q = query(eventsRef, ...constraints);
-      const querySnapshot = await getDocs(q);
+      const { events: newEvents, lastDoc, hasMore: moreResults } = result;
+
+      // Update state with new events
+      setEvents(prev => [...prev, ...newEvents]);
+      lastDocRef.current = lastDoc;
+      setHasMore(moreResults);
+      setLoading(false);
       
-      if (!querySnapshot.empty) {
-        let newEvents: Event[] = querySnapshot.docs.map((docSnap) => {
-          const { id, ...data } = docSnap.data();
-          return { id: docSnap.id, ...data } as Event;
-        });        
-
-        // Apply search filter in memory if search query exists
-        if (searchQuery) {
-          const searchLower = searchQuery.toLowerCase();
-          newEvents = newEvents.filter(event => 
-            event.home_team.full_name.toLowerCase().includes(searchLower) ||
-            event.visitor_team.full_name.toLowerCase().includes(searchLower) ||
-            event.home_team.city.toLowerCase().includes(searchLower) ||
-            event.visitor_team.city.toLowerCase().includes(searchLower)
-          );
-        }
-
-        setEvents(prev => {
-          // Filter out events that already exist in the current state
-          const newUniqueEvents = newEvents.filter(newEvent =>
-            !prev.some(existingEvent => existingEvent.id === newEvent.id)
-          );
-          return [...prev, ...newUniqueEvents];
-        });
-        lastDocRef.current = querySnapshot.docs[querySnapshot.docs.length - 1];
-        
-        if (querySnapshot.size < 10) {
-          setHasMore(false);
-        }
-      } else {
-        setHasMore(false);
-      }
     } catch (error) {
-      console.error('Error fetching events:', error);
+      console.error('Error loading events:', error);
+      setLoading(false);
     } finally {
       setIsFetchingMore(false);
-      setLoading(false);
     }
   };
 
-  /**
-   * Fetch initial events on mount
-   */
-  useEffect(() => {
-    fetchEvents();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /**
-   * Set up an IntersectionObserver on a sentinel <div> to trigger fetch for next events.
-   */
+  // For infinite scroll functionality
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        // If the sentinel is intersecting and we're not already fetching and there's more data
-        if (entries[0].isIntersecting && !isFetchingMore && hasMore) {
-          fetchEvents();
+        const [entry] = entries;
+        if (entry.isIntersecting && hasMore && !isFetchingMore) {
+          loadEvents();
         }
       },
-      {
-        threshold: 1.0
-      }
+      { threshold: 0.5 }
     );
 
-    if (loadMoreRef.current) {
-      observer.observe(loadMoreRef.current);
+    const currentLoadMoreRef = loadMoreRef.current;
+    if (currentLoadMoreRef) {
+      observer.observe(currentLoadMoreRef);
     }
 
-    // Cleanup
     return () => {
-      if (loadMoreRef.current) {
-        observer.unobserve(loadMoreRef.current);
+      if (currentLoadMoreRef) {
+        observer.unobserve(currentLoadMoreRef);
       }
     };
-  }, [loadMoreRef, hasMore, isFetchingMore]);
+  }, [hasMore, isFetchingMore]);
+
+  // Initial fetch on component mount
+  useEffect(() => {
+    loadEvents();
+  }, []);
 
   if (loading) {
     return (
@@ -387,13 +315,7 @@ export default function Events() {
             {/* Footer */}
             <div className="p-3 bg-gray-50 dark:bg-gray-700 text-center text-xs mt-auto">
               <span className="text-gray-500 dark:text-gray-400">
-                {new Date(event.status).toLocaleDateString(undefined, {
-                  weekday: 'short',
-                  month: 'short',
-                  day: 'numeric',
-                  hour: 'numeric',
-                  minute: '2-digit'
-                })}
+                {formatEventDate(event.status)}
               </span>
             </div>
           </div>

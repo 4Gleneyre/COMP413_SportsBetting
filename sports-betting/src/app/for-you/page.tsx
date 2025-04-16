@@ -154,9 +154,12 @@ export default function ForYou() {
           id: doc.id,
           content: data.content,
           createdAt: data.createdAt,
+          updatedAt: data.updatedAt || null,
           userId: data.userId,
           username: data.username,
           userPhotoURL: data.userPhotoURL,
+          mediaUrl: data.mediaUrl || undefined,
+          mediaType: data.mediaType || undefined,
           taggedEvents: data.taggedEvents
         });
       });

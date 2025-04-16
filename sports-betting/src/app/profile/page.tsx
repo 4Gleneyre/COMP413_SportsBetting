@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { collection, getDocs, query, where, doc, getDoc, Timestamp, updateDoc, addDoc, setDoc, serverTimestamp, orderBy, limit, onSnapshot } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Event } from '@/types/events';
 import type { Post } from '@/types/post';
@@ -219,11 +220,11 @@ export default function ProfilePage() {
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
   const [showEventSelector, setShowEventSelector] = useState(false);
-
-  // Add debug log for trades state changes
-  useEffect(() => {
-    console.log('Trades state updated:', trades);
-  }, [trades]);
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<string>('');
+  const [mediaType, setMediaType] = useState<'image' | 'video' | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   /**
    * Fetch event by ID from Firestore
@@ -409,9 +410,12 @@ export default function ProfilePage() {
             id: doc.id,
             content: data.content,
             createdAt: data.createdAt,
+            updatedAt: data.updatedAt || null,
             userId: data.userId,
             username: data.username,
             userPhotoURL: data.userPhotoURL,
+            mediaUrl: data.mediaUrl || undefined,
+            mediaType: data.mediaType || undefined,
             taggedEvents: data.taggedEvents
           });
         });
@@ -532,9 +536,58 @@ export default function ProfilePage() {
     setIsSubmittingPost(true);
     
     try {
+      let mediaUrl = '';
+      let mediaTypeValue: 'image' | 'video' | null = null;
+      
+      // Upload media file if one is selected
+      if (mediaFile) {
+        const fileExtension = mediaFile.name.split('.').pop()?.toLowerCase() || '';
+        const fileName = `post_media/${user.uid}/${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${fileExtension}`;
+        const storageRef = ref(storage, fileName);
+        
+        // Upload the file
+        const uploadTask = uploadBytesResumable(storageRef, mediaFile);
+        
+        // Return a promise that resolves when the upload is complete
+        await new Promise<void>((resolve, reject) => {
+          uploadTask.on(
+            'state_changed',
+            (snapshot) => {
+              // Track upload progress
+              const progress = Math.round(
+                (snapshot.bytesTransferred / snapshot.totalBytes) * 100
+              );
+              setUploadProgress(progress);
+            },
+            (error) => {
+              console.error('Error uploading file:', error);
+              reject(error);
+            },
+            async () => {
+              // Get the download URL
+              mediaUrl = await getDownloadURL(uploadTask.snapshot.ref);
+              
+              // Determine media type based on file extension
+              if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExtension)) {
+                mediaTypeValue = 'image';
+              } else if (['mp4', 'webm', 'ogg', 'mov'].includes(fileExtension)) {
+                mediaTypeValue = 'video';
+              }
+              
+              resolve();
+            }
+          );
+        });
+      }
+      
       // Call the Cloud Function to create a post
       const createPostFunction = httpsCallable(functions, 'createPost');
-      const result = await createPostFunction({ content: newPostContent.trim(), taggedEvents: selectedEventIds });
+      const result = await createPostFunction({ 
+        content: newPostContent.trim(), 
+        taggedEvents: selectedEventIds,
+        mediaUrl,
+        mediaType: mediaTypeValue
+      });
       
       // Access the response data
       const responseData = result.data as {
@@ -547,9 +600,13 @@ export default function ProfilePage() {
         // Add to local state with the returned post
         setPosts(prevPosts => [responseData.post, ...prevPosts]);
         
-        // Clear the input
+        // Clear the input and media
         setNewPostContent('');
         setSelectedEventIds([]);
+        setMediaFile(null);
+        setMediaPreview('');
+        setMediaType(null);
+        setUploadProgress(0);
       } else {
         throw new Error('Failed to create post');
       }
@@ -558,6 +615,49 @@ export default function ProfilePage() {
       alert('Failed to submit post. Please try again.');
     } finally {
       setIsSubmittingPost(false);
+    }
+  };
+
+  // Function to handle file selection
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check file size (limit to 10MB)
+    const maxSize = 10 * 1024 * 1024; // 10MB in bytes
+    if (file.size > maxSize) {
+      alert('File is too large. Please select a file smaller than 10MB.');
+      return;
+    }
+
+    // Check file type
+    const fileType = file.type.split('/')[0];
+    if (fileType !== 'image' && fileType !== 'video') {
+      alert('Only image and video files are allowed.');
+      return;
+    }
+
+    // Set the selected file
+    setMediaFile(file);
+    
+    // Create a preview URL
+    const objectUrl = URL.createObjectURL(file);
+    setMediaPreview(objectUrl);
+    
+    // Set the media type
+    setMediaType(fileType as 'image' | 'video');
+    
+    // Reset upload progress
+    setUploadProgress(0);
+  };
+
+  // Function to remove selected media
+  const handleRemoveMedia = () => {
+    setMediaFile(null);
+    setMediaPreview('');
+    setMediaType(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -714,23 +814,87 @@ export default function ProfilePage() {
                   rows={3}
                 ></textarea>
               </div>
+              
+              {/* Media Preview */}
+              {mediaPreview && (
+                <div className="relative mb-3 border rounded-lg overflow-hidden">
+                  {mediaType === 'image' ? (
+                    <img 
+                      src={mediaPreview} 
+                      alt="Post image" 
+                      className="w-full max-h-80 object-contain"
+                    />
+                  ) : mediaType === 'video' ? (
+                    <video 
+                      src={mediaPreview} 
+                      controls 
+                      className="w-full max-h-80"
+                    />
+                  ) : null}
+                  
+                  {/* Upload progress indicator */}
+                  {isSubmittingPost && uploadProgress > 0 && uploadProgress < 100 && (
+                    <div className="absolute bottom-0 left-0 right-0 bg-gray-200 h-1">
+                      <div 
+                        className="bg-blue-500 h-1" 
+                        style={{ width: `${uploadProgress}%` }}
+                      ></div>
+                    </div>
+                  )}
+                  
+                  {/* Remove button */}
+                  <button
+                    type="button"
+                    onClick={handleRemoveMedia}
+                    className="absolute top-2 right-2 bg-gray-900/70 text-white rounded-full p-1 hover:bg-gray-900"
+                    aria-label="Remove media"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+              
               <div className="flex justify-between items-center">
-                <button
-                  type="button"
-                  onClick={toggleEventSelector}
-                  className={`flex items-center px-3 py-1.5 text-sm rounded-lg border ${
-                    showEventSelector || selectedEventIds.length > 0
-                      ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
-                      : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600'
-                  }`}
-                >
-                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  {selectedEventIds.length > 0 
-                    ? `${selectedEventIds.length} Event${selectedEventIds.length > 1 ? 's' : ''} Tagged` 
-                    : 'Tag Events'}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={toggleEventSelector}
+                    className={`flex items-center px-3 py-1.5 text-sm rounded-lg border ${
+                      showEventSelector || selectedEventIds.length > 0
+                        ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
+                        : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    {selectedEventIds.length > 0 
+                      ? `${selectedEventIds.length} Event${selectedEventIds.length > 1 ? 's' : ''} Tagged` 
+                      : 'Tag Events'}
+                  </button>
+                  
+                  {/* Media upload button */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center px-3 py-1.5 text-sm rounded-lg border bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600"
+                  >
+                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {mediaFile ? 'Change Media' : 'Add Media'}
+                  </button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileSelect}
+                    accept="image/*,video/*"
+                    className="hidden"
+                  />
+                </div>
+                
                 <button
                   type="submit"
                   disabled={!newPostContent.trim() || isSubmittingPost}
@@ -745,32 +909,26 @@ export default function ProfilePage() {
           {/* Event selector */}
           {showEventSelector && (
             <EventSelector
-              events={availableEvents}
               selectedEventIds={selectedEventIds}
               toggleEventSelection={toggleEventSelection}
-              loading={loadingEvents}
             />
           )}
 
           {/* Posts display */}
-          {(() => { console.log('Rendering posts section. loadingPosts:', loadingPosts, 'posts.length:', posts.length); return null; })()}
           {loadingPosts ? (
             <div className="animate-pulse space-y-4">
-              {(() => { console.log('Showing loading skeleton'); return null; })()}
               {[1, 2, 3].map((i) => (
                 <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded-xl" />
               ))}
             </div>
           ) : posts.length === 0 ? (
             <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
-              {(() => { console.log('No posts found to display'); return null; })()}
               <p className="text-gray-500 dark:text-gray-400">
                 You haven't created any posts yet.
               </p>
             </div>
           ) : (
             <div className="space-y-4">
-              {(() => { console.log('About to map through posts:', posts); return null; })()}
               {posts.map((post) => (
                 <PostItem key={post.id} post={post} />
               ))}
@@ -791,13 +949,7 @@ export default function ProfilePage() {
           ) : (
             <div className="space-y-6">
               {trades.map((trade) => {
-                console.log('Trade:', trade.id, 'Event:', trade.event);
-                if (trade.event) {
-                  console.log('Raw event date:', trade.event.datetime);
-                  console.log('Event date type:', typeof trade.event.datetime);
-                }
                 const eventDate = trade.event ? parseLocalDate(trade.event.datetime) : null;
-                console.log('Event date for trade:', trade.id, eventDate);
                 return (
                   <div
                     key={trade.id}

@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import type { Event } from '@/types/events';
 import DateRangePicker from '@/components/DateRangePicker';
+import { formatEventDate, fetchEvents } from '@/utils/eventFetching';
 
-// Add TeamLogo component from events page
 function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: string }) {
   const [imageExists, setImageExists] = React.useState(true);
 
@@ -20,28 +20,83 @@ function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: 
 }
 
 interface EventSelectorProps {
-  events: Event[];
   selectedEventIds: string[];
   toggleEventSelection: (eventId: string) => void;
-  loading: boolean;
 }
 
 export default function EventSelector({ 
-  events, 
   selectedEventIds, 
-  toggleEventSelection,
-  loading 
+  toggleEventSelection
 }: EventSelectorProps) {
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDates, setFilterDates] = useState<[Date | null, Date | null]>([null, null]);
   const [showFilterModal, setShowFilterModal] = useState(false);
-  const [filteredEvents, setFilteredEvents] = useState<Event[]>(events);
+  const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
+  
+  // For pagination
+  const lastDocRef = useRef<any>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
 
-  // Filter events based on search query and date range
+  // Fetch events when filters change
+  useEffect(() => {
+    const loadEvents = async () => {
+      setLoading(true);
+      try {
+        const result = await fetchEvents({
+          filterDates,
+          pageSize: 20 // Fetch more events initially to reduce additional calls
+        });
+        
+        setEvents(result.events);
+        lastDocRef.current = result.lastDoc;
+        setHasMore(result.hasMore);
+      } catch (error) {
+        console.error('Error fetching events:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadEvents();
+  }, [filterDates]);
+  
+  // Load more events when user scrolls to the bottom
+  const loadMoreEvents = async () => {
+    if (!hasMore || isFetchingMore) return;
+    
+    setIsFetchingMore(true);
+    try {
+      const result = await fetchEvents({
+        filterDates,
+        lastDoc: lastDocRef.current,
+        pageSize: 10
+      });
+      
+      setEvents(prev => [...prev, ...result.events]);
+      lastDocRef.current = result.lastDoc;
+      setHasMore(result.hasMore);
+    } catch (error) {
+      console.error('Error loading more events:', error);
+    } finally {
+      setIsFetchingMore(false);
+    }
+  };
+
+  // Handle scrolling to bottom of event list to load more
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop <= clientHeight * 1.5 && hasMore && !isFetchingMore) {
+      loadMoreEvents();
+    }
+  };
+
+  // Filter events based on search query
   useEffect(() => {
     let filtered = [...events];
     
-    // Apply search filter if search query exists
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
       filtered = filtered.filter(event => 
@@ -52,25 +107,8 @@ export default function EventSelector({
       );
     }
     
-    // Apply date filter if a date range is selected
-    if (filterDates[0]) {
-      const startDate = filterDates[0];
-      filtered = filtered.filter(event => {
-        const eventDate = new Date(event.status);
-        return eventDate >= startDate;
-      });
-      
-      if (filterDates[1]) {
-        const endDate = filterDates[1];
-        filtered = filtered.filter(event => {
-          const eventDate = new Date(event.status);
-          return eventDate <= endDate;
-        });
-      }
-    }
-    
     setFilteredEvents(filtered);
-  }, [events, searchQuery, filterDates]);
+  }, [events, searchQuery]);
 
   if (loading) {
     return (
@@ -93,23 +131,10 @@ export default function EventSelector({
     );
   }
 
-  // Format date for display
-  const formatEventDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString(undefined, {
-      weekday: 'short',
-      month: 'short', 
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    });
-  };
-
   return (
     <div className="mt-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
       <p className="text-sm font-medium mb-3">Tag events in your post (select one or more):</p>
       
-      {/* Search and Filter Controls */}
       <div className="mb-4">
         <div className="flex">
           <input
@@ -130,7 +155,6 @@ export default function EventSelector({
         </div>
       </div>
       
-      {/* Date Range Picker */}
       {showFilterModal && (
         <div className="mb-4">
           <DateRangePicker
@@ -141,7 +165,6 @@ export default function EventSelector({
         </div>
       )}
       
-      {/* Filter chips */}
       {(filterDates[0] || filterDates[1]) && (
         <div className="flex gap-2 mb-3">
           {filterDates[0] && (
@@ -181,13 +204,11 @@ export default function EventSelector({
         </div>
       )}
       
-      {/* No results message */}
       {filteredEvents.length === 0 && (
         <p className="text-sm text-gray-500 dark:text-gray-400 my-4">No events match your search criteria.</p>
       )}
       
-      {/* Events List */}
-      <div className="max-h-60 overflow-y-auto space-y-3">
+      <div className="max-h-60 overflow-y-auto space-y-3" onScroll={handleScroll}>
         {filteredEvents.map(event => (
           <div
             key={event.id}
@@ -199,7 +220,6 @@ export default function EventSelector({
             }`}
           >
             <div className="p-3">
-              {/* Selection indicator */}
               <div className="flex justify-between items-center mb-2">
                 <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-full text-xs font-medium">
                   Basketball
@@ -217,9 +237,7 @@ export default function EventSelector({
                 </div>
               </div>
               
-              {/* Teams information with logos and win percentages */}
               <div className="grid grid-cols-[1fr,auto,1fr] gap-2 items-center">
-                {/* Home team */}
                 <div className="text-left">
                   <div className="flex items-center gap-3">
                     <TeamLogo
@@ -237,12 +255,10 @@ export default function EventSelector({
                   </div>
                 </div>
 
-                {/* VS indicator */}
                 <div className="flex flex-col items-center justify-center">
                   <div className="text-xs text-gray-500 dark:text-gray-400">VS</div>
                 </div>
 
-                {/* Visitor team */}
                 <div className="text-right">
                   <div className="flex items-center justify-end gap-3">
                     <div>
@@ -262,7 +278,6 @@ export default function EventSelector({
               </div>
             </div>
             
-            {/* Date/time footer */}
             <div className="p-2 bg-gray-50 dark:bg-gray-700 text-center text-xs">
               <span className="text-gray-500 dark:text-gray-400">
                 {formatEventDate(event.status)}
@@ -270,6 +285,14 @@ export default function EventSelector({
             </div>
           </div>
         ))}
+        
+        {/* Loading more indicator */}
+        {isFetchingMore && (
+          <div className="py-2 text-center">
+            <div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-blue-500 border-r-transparent"></div>
+            <span className="ml-2 text-xs text-gray-500">Loading more...</span>
+          </div>
+        )}
       </div>
     </div>
   );

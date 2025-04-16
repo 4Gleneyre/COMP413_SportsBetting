@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { doc, getDoc, onSnapshot, collection, query, where, orderBy, limit } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase';
 import Image from 'next/image';
 import type { Event } from '@/types/events';
 import type { Post } from '@/types/post';
@@ -10,7 +10,8 @@ import { Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '@/lib/firebase';
-import { FaEdit, FaCheck, FaTimes } from 'react-icons/fa';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { FaEdit, FaCheck, FaTimes, FaTrash } from 'react-icons/fa';
 import EventSelector from './EventSelector';
 
 // TaggedEventItem Component
@@ -152,6 +153,12 @@ export default function PostItem({ post }: { post: Post }) {
   const [error, setError] = useState('');
   const [availableEvents, setAvailableEvents] = useState<Event[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<string>(post.mediaUrl || '');
+  const [mediaType, setMediaType] = useState<'image' | 'video' | undefined>(post.mediaType);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [keepExistingMedia, setKeepExistingMedia] = useState(!!post.mediaUrl);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Check if current user is the author of the post
   const isPostAuthor = user?.uid === post.userId;
@@ -160,6 +167,9 @@ export default function PostItem({ post }: { post: Post }) {
   useEffect(() => {
     setEditedContent(post.content);
     setTaggedEvents(post.taggedEvents || []);
+    setMediaPreview(post.mediaUrl || '');
+    setMediaType(post.mediaType);
+    setKeepExistingMedia(!!post.mediaUrl);
   }, [post]);
 
   // Load available events when editing mode is activated
@@ -201,6 +211,53 @@ export default function PostItem({ post }: { post: Post }) {
     });
   };
 
+  // Handle file selection for media upload
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check file size (limit to 10MB)
+    const maxSize = 10 * 1024 * 1024; // 10MB in bytes
+    if (file.size > maxSize) {
+      setError('File is too large. Please select a file smaller than 10MB.');
+      return;
+    }
+
+    // Check file type
+    const fileType = file.type.split('/')[0];
+    if (fileType !== 'image' && fileType !== 'video') {
+      setError('Only image and video files are allowed.');
+      return;
+    }
+
+    // Set the selected file
+    setMediaFile(file);
+    
+    // Create a preview URL
+    const objectUrl = URL.createObjectURL(file);
+    setMediaPreview(objectUrl);
+    
+    // Set the media type
+    setMediaType(fileType as 'image' | 'video');
+    
+    // We're replacing the existing media
+    setKeepExistingMedia(false);
+    
+    // Reset upload progress
+    setUploadProgress(0);
+  };
+
+  // Function to remove selected/existing media
+  const handleRemoveMedia = () => {
+    setKeepExistingMedia(false);
+    setMediaFile(null);
+    setMediaPreview('');
+    setMediaType(undefined);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleEditSubmit = async () => {
     if (!editedContent.trim()) {
       setError('Post content cannot be empty');
@@ -211,19 +268,91 @@ export default function PostItem({ post }: { post: Post }) {
     setError('');
 
     try {
+      let mediaUrl = post.mediaUrl || '';
+      let mediaTypeValue = post.mediaType;
+      
+      // If there's a new media file selected, upload it
+      if (mediaFile) {
+        const fileExtension = mediaFile.name.split('.').pop()?.toLowerCase() || '';
+        const fileName = `post_media/${post.userId}/${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${fileExtension}`;
+        const storageRef = ref(storage, fileName);
+        
+        // Upload the file
+        const uploadTask = uploadBytesResumable(storageRef, mediaFile);
+        
+        // Wait for upload to complete
+        await new Promise<void>((resolve, reject) => {
+          uploadTask.on(
+            'state_changed',
+            (snapshot) => {
+              // Track upload progress
+              const progress = Math.round(
+                (snapshot.bytesTransferred / snapshot.totalBytes) * 100
+              );
+              setUploadProgress(progress);
+            },
+            (error) => {
+              console.error('Error uploading file:', error);
+              reject(error);
+            },
+            async () => {
+              // Get the download URL
+              mediaUrl = await getDownloadURL(uploadTask.snapshot.ref);
+              
+              // Determine media type based on file extension
+              if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExtension)) {
+                mediaTypeValue = 'image';
+              } else if (['mp4', 'webm', 'ogg', 'mov'].includes(fileExtension)) {
+                mediaTypeValue = 'video';
+              }
+              
+              resolve();
+            }
+          );
+        });
+      } else if (!keepExistingMedia && post.mediaUrl) {
+        // If we're removing the existing media, attempt to delete it from storage
+        try {
+          // Extract the path from the URL
+          const urlObj = new URL(post.mediaUrl);
+          const pathMatch = urlObj.pathname.match(/\/o\/(.+?)(?:\?|$)/);
+          
+          if (pathMatch && pathMatch[1]) {
+            const decodedPath = decodeURIComponent(pathMatch[1]);
+            const storageRef = ref(storage, decodedPath);
+            await deleteObject(storageRef);
+            console.log('Deleted existing media file');
+          }
+        } catch (err) {
+          console.error('Error deleting existing media:', err);
+          // Continue with the edit even if deletion fails
+        }
+        
+        // Clear the media URL and type
+        mediaUrl = '';
+        mediaTypeValue = undefined;
+      }
+      
       const editPost = httpsCallable(functions, 'editPost');
       const result = await editPost({
         postId: post.id,
         content: editedContent,
-        taggedEvents: taggedEvents
+        taggedEvents: taggedEvents,
+        mediaUrl,
+        mediaType: mediaTypeValue
       });
       
-      // Update the local state with the edited content and tagged events
+      // Update the local state with the edited content, tagged events, and media
       post.content = editedContent;
       post.taggedEvents = taggedEvents;
       post.updatedAt = Timestamp.now();
+      post.mediaUrl = mediaUrl;
+      post.mediaType = mediaTypeValue;
       
+      // Reset state
       setIsEditing(false);
+      setMediaFile(null);
+      setUploadProgress(0);
     } catch (err: any) {
       console.error('Error editing post:', err);
       setError(err.message || 'Failed to edit post');
@@ -237,6 +366,14 @@ export default function PostItem({ post }: { post: Post }) {
     setEditedContent(post.content);
     setTaggedEvents(post.taggedEvents || []);
     setError('');
+    setMediaFile(null);
+    setMediaPreview(post.mediaUrl || '');
+    setMediaType(post.mediaType);
+    setKeepExistingMedia(!!post.mediaUrl);
+    setUploadProgress(0);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   return (
@@ -341,24 +478,103 @@ export default function PostItem({ post }: { post: Post }) {
           />
           {error && <p className="text-red-500 mt-1 text-sm">{error}</p>}
           
+          {/* Media Preview in edit mode */}
+          {mediaPreview && (
+            <div className="relative mt-3 mb-3 border rounded-lg overflow-hidden">
+              {mediaType === 'image' ? (
+                <img 
+                  src={mediaPreview} 
+                  alt="Post image" 
+                  className="w-full max-h-80 object-contain"
+                />
+              ) : mediaType === 'video' ? (
+                <video 
+                  src={mediaPreview} 
+                  controls 
+                  className="w-full max-h-80"
+                />
+              ) : null}
+              
+              {/* Upload progress indicator */}
+              {isSubmitting && uploadProgress > 0 && uploadProgress < 100 && (
+                <div className="absolute bottom-0 left-0 right-0 bg-gray-200 h-1">
+                  <div 
+                    className="bg-blue-500 h-1" 
+                    style={{ width: `${uploadProgress}%` }}
+                  ></div>
+                </div>
+              )}
+              
+              {/* Remove button */}
+              <button
+                type="button"
+                onClick={handleRemoveMedia}
+                className="absolute top-2 right-2 bg-gray-900/70 text-white rounded-full p-1 hover:bg-gray-900"
+                aria-label="Remove media"
+              >
+                <FaTrash size={16} />
+              </button>
+            </div>
+          )}
+          
+          {/* Media controls */}
+          <div className="flex justify-between mt-3">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center px-3 py-1.5 text-sm rounded-lg border bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600"
+            >
+              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              {mediaPreview ? 'Change Media' : 'Add Media'}
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              accept="image/*,video/*"
+              className="hidden"
+            />
+          </div>
+          
           {/* Event Selector */}
           <div className="mt-4">
             <EventSelector
-              events={availableEvents}
               selectedEventIds={taggedEvents}
               toggleEventSelection={toggleEventSelection}
-              loading={loadingEvents}
             />
           </div>
         </div>
       ) : (
-        <div className="text-gray-800 dark:text-gray-200 whitespace-pre-line">
-          {post.content}
+        <div>
+          <div className="text-gray-800 dark:text-gray-200 whitespace-pre-line">
+            {post.content}
+          </div>
+          
+          {/* Display media in view mode */}
+          {post.mediaUrl && (
+            <div className="mt-3 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+              {post.mediaType === 'image' ? (
+                <img 
+                  src={post.mediaUrl} 
+                  alt="Post image" 
+                  className="w-full max-h-96 object-contain"
+                />
+              ) : post.mediaType === 'video' ? (
+                <video 
+                  src={post.mediaUrl} 
+                  controls 
+                  className="w-full max-h-96"
+                />
+              ) : null}
+            </div>
+          )}
         </div>
       )}
       
       {/* Tagged Events */}
-      {post.taggedEvents && post.taggedEvents.length > 0 && (
+      {post.taggedEvents && post.taggedEvents.length > 0 && !isEditing && (
         <div className="mt-5">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm text-gray-600 dark:text-gray-300 font-medium">Tagged events:</p>

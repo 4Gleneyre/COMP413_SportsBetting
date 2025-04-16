@@ -774,7 +774,7 @@ export const createPost = onCall(
     maxInstances: 10,
   },
   async (request) => {
-    const { content, taggedEvents } = request.data;
+    const { content, taggedEvents, mediaUrl, mediaType } = request.data;
     const auth = request.auth;
 
     if (!auth) {
@@ -788,6 +788,15 @@ export const createPost = onCall(
     // Validate taggedEvents if provided
     if (taggedEvents && (!Array.isArray(taggedEvents) || taggedEvents.some(id => typeof id !== 'string'))) {
       throw new HttpsError("invalid-argument", "Tagged events must be an array of event IDs");
+    }
+
+    // Validate mediaUrl and mediaType if provided
+    if (mediaUrl && typeof mediaUrl !== 'string') {
+      throw new HttpsError("invalid-argument", "Media URL must be a string");
+    }
+
+    if (mediaType && (mediaType !== 'image' && mediaType !== 'video')) {
+      throw new HttpsError("invalid-argument", "Media type must be 'image' or 'video'");
     }
 
     try {
@@ -807,7 +816,9 @@ export const createPost = onCall(
         userId: auth.uid,
         username: username,
         userPhotoURL: auth.token.picture || null,
-        taggedEvents: taggedEvents || [] // Add tagged events to the post data
+        taggedEvents: taggedEvents || [], // Add tagged events to the post data
+        mediaUrl: mediaUrl || '',
+        mediaType: mediaType || undefined
       };
       
       // Add the post to Firestore
@@ -843,43 +854,6 @@ export const createPost = onCall(
   }
 );
 
-export const checkUsernameUnique = onCall(
-  {
-    region: "us-central1",
-    maxInstances: 10,
-  },
-  async (request) => {
-    // Ensure the user is authenticated
-    if (!request.auth) {
-      throw new HttpsError("unauthenticated", "User must be authenticated.");
-    }
-
-    const { username } = request.data;
-
-    // Validate required input
-    if (!username || typeof username !== "string") {
-      throw new HttpsError("invalid-argument", "A valid username is required.");
-    }
-
-    try {
-      // Check if username already exists using admin SDK
-      const usersRef = admin.firestore().collection('users');
-      const querySnapshot = await usersRef
-        .where('username', '==', username)
-        .limit(1)
-        .get();
-      
-      // Return whether the username is unique (true if unique, false if taken)
-      return { 
-        isUnique: querySnapshot.empty,
-      };
-    } catch (error) {
-      console.error("Error checking username uniqueness:", error);
-      throw new HttpsError("internal", "Failed to check username uniqueness.");
-    }
-  }
-);
-
 export const editPost = onCall(
   {
     region: "us-central1",
@@ -892,7 +866,7 @@ export const editPost = onCall(
     }
 
     const auth = request.auth;
-    const { postId, content, taggedEvents } = request.data;
+    const { postId, content, taggedEvents, mediaUrl, mediaType } = request.data;
 
     // Validate required input
     if (!postId || typeof postId !== "string") {
@@ -905,6 +879,15 @@ export const editPost = onCall(
 
     if (taggedEvents && !Array.isArray(taggedEvents)) {
       throw new HttpsError("invalid-argument", "Tagged events must be an array.");
+    }
+
+    // Validate mediaUrl and mediaType if provided
+    if (mediaUrl !== undefined && typeof mediaUrl !== 'string') {
+      throw new HttpsError("invalid-argument", "Media URL must be a string");
+    }
+
+    if (mediaType && (mediaType !== 'image' && mediaType !== 'video')) {
+      throw new HttpsError("invalid-argument", "Media type must be 'image' or 'video'");
     }
 
     try {
@@ -928,6 +911,15 @@ export const editPost = onCall(
         content: content.trim(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       };
+      
+      // Update media fields if they are provided
+      if (mediaUrl !== undefined) {
+        updateData.mediaUrl = mediaUrl;
+      }
+      
+      if (mediaType !== undefined) {
+        updateData.mediaType = mediaType;
+      }
       
       // Handle tagged events updates if provided
       if (taggedEvents) {
@@ -970,25 +962,53 @@ export const editPost = onCall(
         }
       }
       
-      // Update the post
+      // Update the post document
       await postRef.update(updateData);
-      
-      // Get the updated post data
-      const updatedPostDoc = await postRef.get();
-      const updatedPostData = updatedPostDoc.data();
       
       return {
         success: true,
-        post: {
-          id: postId,
-          ...updatedPostData,
-          // Return a client timestamp for immediate display
-          updatedAt: new Date().toISOString()
-        }
+        postId
       };
     } catch (error) {
       console.error("Error editing post:", error);
-      throw new HttpsError("internal", "Failed to edit post");
+      throw new HttpsError("internal", "Failed to edit post: " + error);
+    }
+  }
+);
+
+export const checkUsernameUnique = onCall(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+  },
+  async (request) => {
+    // Ensure the user is authenticated
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated.");
+    }
+
+    const { username } = request.data;
+
+    // Validate required input
+    if (!username || typeof username !== "string") {
+      throw new HttpsError("invalid-argument", "A valid username is required.");
+    }
+
+    try {
+      // Check if username already exists using admin SDK
+      const usersRef = admin.firestore().collection('users');
+      const querySnapshot = await usersRef
+        .where('username', '==', username)
+        .limit(1)
+        .get();
+      
+      // Return whether the username is unique (true if unique, false if taken)
+      return { 
+        isUnique: querySnapshot.empty,
+      };
+    } catch (error) {
+      console.error("Error checking username uniqueness:", error);
+      throw new HttpsError("internal", "Failed to check username uniqueness.");
     }
   }
 );
