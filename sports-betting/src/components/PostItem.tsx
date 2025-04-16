@@ -216,13 +216,6 @@ export default function PostItem({ post }: { post: Post }) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check file size (limit to 10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB in bytes
-    if (file.size > maxSize) {
-      setError('File is too large. Please select a file smaller than 10MB.');
-      return;
-    }
-
     // Check file type
     const fileType = file.type.split('/')[0];
     if (fileType !== 'image' && fileType !== 'video') {
