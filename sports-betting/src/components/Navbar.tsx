@@ -51,6 +51,12 @@ export function Navbar() {
               Activity
             </Link>
             <Link 
+              href="/marketplace" 
+              className={getLinkClassName('/marketplace')}
+            >
+              Marketplace
+            </Link>
+            <Link 
               href="/leaderboard" 
               className={getLinkClassName('/leaderboard')}
             >
