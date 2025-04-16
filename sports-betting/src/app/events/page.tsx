@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   collection,
-  onSnapshot,
+  getDocs,
   query,
   where,
   Timestamp,
@@ -160,37 +160,75 @@ export default function Events() {
         limit(10)
       ];
       
-      // Real-time listener for events
-      const q = query(eventsRef, ...constraints);
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const newEvents = snapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            date: data.date || '',
-            home_team: data.home_team || { abbreviation: '', city: '', conference: '', division: '', full_name: '', id: 0, name: '' },
-            visitor_team: data.visitor_team || { abbreviation: '', city: '', conference: '', division: '', full_name: '', id: 0, name: '' },
-            home_team_score: data.home_team_score || 0,
-            visitor_team_score: data.visitor_team_score || 0,
-            period: data.period || 0,
-            postseason: data.postseason || false,
-            season: data.season || 0,
-            status: data.status || '',
-            time: data.time || null,
-            updatedAt: data.updatedAt || new Date(),
-            homeTeamCurrentOdds: data.homeTeamCurrentOdds || 0,
-            visitorTeamCurrentOdds: data.visitorTeamCurrentOdds || 0,
-            datetime: data.datetime || '',
-            trades: data.trades || [],
-          };
-        });
-        setEvents(newEvents);
-        setLoading(false);
-      }, (error) => {
-        console.error('Error listening for events:', error);
-        setLoading(false);
+      // Add date filter if a date range is selected
+      if (filterDates[0]) {
+        const startDateStr = filterDates[0].toISOString().split('T')[0]; // Format: YYYY-MM-DD
+        constraints.push(where('date', '>=', startDateStr));
+        if (filterDates[1]) {
+          const endDateStr = filterDates[1].toISOString().split('T')[0]; // Format: YYYY-MM-DD
+          constraints.push(where('date', '<=', endDateStr));
+        }
+      } else {
+        const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
+        constraints.push(where('date', '>=', today));
+      }
+
+      // Add pagination if there's a last document
+      if (lastDocRef.current) {
+        constraints.push(startAfter(lastDocRef.current.data().date, lastDocRef.current.id));
+      }
+
+      // Debug logging
+      console.log('Query Debug Info:');
+      console.log('Events Reference:', {
+        path: eventsRef.path,
+        id: eventsRef.id,
+        type: eventsRef.type,
       });
-      return () => unsubscribe();
+      console.log('Constraints:', constraints.map(c => ({
+        type: c.type,
+        field: c.field,
+        value: c.value,
+        direction: c.direction, // for orderBy
+        limit: c.limit, // for limit
+      })));
+      console.log('Last Doc:', lastDocRef.current ? { id: lastDocRef.current.id, date: lastDocRef.current.data().date } : null);
+
+      let q = query(eventsRef, ...constraints);
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        let newEvents: Event[] = querySnapshot.docs.map((docSnap) => {
+          const { id, ...data } = docSnap.data();
+          return { id: docSnap.id, ...data } as Event;
+        });        
+
+        // Apply search filter in memory if search query exists
+        if (searchQuery) {
+          const searchLower = searchQuery.toLowerCase();
+          newEvents = newEvents.filter(event => 
+            event.home_team.full_name.toLowerCase().includes(searchLower) ||
+            event.visitor_team.full_name.toLowerCase().includes(searchLower) ||
+            event.home_team.city.toLowerCase().includes(searchLower) ||
+            event.visitor_team.city.toLowerCase().includes(searchLower)
+          );
+        }
+
+        setEvents(prev => {
+          // Filter out events that already exist in the current state
+          const newUniqueEvents = newEvents.filter(newEvent =>
+            !prev.some(existingEvent => existingEvent.id === newEvent.id)
+          );
+          return [...prev, ...newUniqueEvents];
+        });
+        lastDocRef.current = querySnapshot.docs[querySnapshot.docs.length - 1];
+        
+        if (querySnapshot.size < 10) {
+          setHasMore(false);
+        }
+      } else {
+        setHasMore(false);
+      }
     } catch (error) {
       console.error('Error fetching events:', error);
     } finally {

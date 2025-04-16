@@ -7,6 +7,7 @@ export interface Post {
   id: string;
   content: string;
   createdAt: Timestamp;
+  updatedAt?: Timestamp | string | null; 
   userId: string;
   username: string;
   userPhotoURL?: string;

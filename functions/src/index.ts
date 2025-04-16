@@ -879,3 +879,116 @@ export const checkUsernameUnique = onCall(
     }
   }
 );
+
+export const editPost = onCall(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+  },
+  async (request) => {
+    // Ensure the user is authenticated
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated.");
+    }
+
+    const auth = request.auth;
+    const { postId, content, taggedEvents } = request.data;
+
+    // Validate required input
+    if (!postId || typeof postId !== "string") {
+      throw new HttpsError("invalid-argument", "A valid post ID is required.");
+    }
+
+    if (!content || typeof content !== "string" || content.trim().length === 0) {
+      throw new HttpsError("invalid-argument", "Post content is required.");
+    }
+
+    if (taggedEvents && !Array.isArray(taggedEvents)) {
+      throw new HttpsError("invalid-argument", "Tagged events must be an array.");
+    }
+
+    try {
+      // Get the post document
+      const postRef = db.collection("posts").doc(postId);
+      const postDoc = await postRef.get();
+      
+      // Check if post exists
+      if (!postDoc.exists) {
+        throw new HttpsError("not-found", "Post not found.");
+      }
+      
+      // Check if user is the author of the post
+      const postData = postDoc.data();
+      if (postData?.userId !== auth.uid) {
+        throw new HttpsError("permission-denied", "You can only edit your own posts.");
+      }
+      
+      // Prepare the update data
+      const updateData: any = {
+        content: content.trim(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      
+      // Handle tagged events updates if provided
+      if (taggedEvents) {
+        updateData.taggedEvents = taggedEvents;
+        
+        // If tagged events have changed, we need to update the events collection
+        const oldTaggedEvents = postData.taggedEvents || [];
+        
+        // Events to remove the post from
+        const eventsToRemove = oldTaggedEvents.filter(
+          (eventId: string) => !taggedEvents.includes(eventId)
+        );
+        
+        // Events to add the post to
+        const eventsToAdd = taggedEvents.filter(
+          (eventId: string) => !oldTaggedEvents.includes(eventId)
+        );
+        
+        // Update events in batches if needed
+        if (eventsToRemove.length > 0 || eventsToAdd.length > 0) {
+          const batch = db.batch();
+          
+          // Remove post ID from events that are no longer tagged
+          for (const eventId of eventsToRemove) {
+            const eventRef = db.collection("events").doc(eventId);
+            batch.update(eventRef, {
+              posts: admin.firestore.FieldValue.arrayRemove(postId)
+            });
+          }
+          
+          // Add post ID to newly tagged events
+          for (const eventId of eventsToAdd) {
+            const eventRef = db.collection("events").doc(eventId);
+            batch.update(eventRef, {
+              posts: admin.firestore.FieldValue.arrayUnion(postId)
+            });
+          }
+          
+          await batch.commit();
+        }
+      }
+      
+      // Update the post
+      await postRef.update(updateData);
+      
+      // Get the updated post data
+      const updatedPostDoc = await postRef.get();
+      const updatedPostData = updatedPostDoc.data();
+      
+      return {
+        success: true,
+        post: {
+          id: postId,
+          ...updatedPostData,
+          // Return a client timestamp for immediate display
+          updatedAt: new Date().toISOString()
+        }
+      };
+    } catch (error) {
+      console.error("Error editing post:", error);
+      throw new HttpsError("internal", "Failed to edit post");
+    }
+  }
+);
