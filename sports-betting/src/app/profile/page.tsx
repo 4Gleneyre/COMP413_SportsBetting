@@ -5,12 +5,14 @@ import { collection, getDocs, query, where, doc, getDoc, Timestamp, updateDoc, a
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Event } from '@/types/events';
+import type { Post } from '@/types/post';
 import Image from 'next/image';
 import GameInfoModal from '@/components/GameInfoModal';
 import BettingModal from '@/components/BettingModal';
 import { functions } from '@/lib/firebase';
 import { httpsCallable } from 'firebase/functions';
-import PostItem, { Post } from '@/components/PostItem';
+import PostItem from '@/components/PostItem';
+import EventSelector from '@/components/EventSelector';
 
 interface Trade {
   id: string;
@@ -419,8 +421,8 @@ export default function ProfilePage() {
       const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
       const q = query(
         eventsRef, 
-        where('date', '>=', today),
-        orderBy('date', 'asc'),
+        where('status', '>=', today),
+        orderBy('status', 'asc'),
         // Limit to prevent fetching too many events
         limit(20)
       );
@@ -435,8 +437,17 @@ export default function ProfilePage() {
         eventsData.push(data);
       });
       
-      console.log('Events for tagging:', eventsData);
-      setAvailableEvents(eventsData);
+      // Function to validate date
+      const isValidDate = (dateString: string) => {
+        const date = new Date(dateString);
+        return !isNaN(date.getTime());
+      };
+      
+      // Filter events to ensure they have valid status dates
+      const validEvents = eventsData.filter(event => event.status && isValidDate(event.status));
+      
+      console.log('Events for tagging:', validEvents);
+      setAvailableEvents(validEvents);
     } catch (error) {
       console.error('Error fetching events for tagging:', error);
     } finally {
@@ -714,87 +725,12 @@ export default function ProfilePage() {
 
           {/* Event selector */}
           {showEventSelector && (
-            <div className="mt-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="text-sm font-medium">Tag events in your post</h3>
-                {loadingEvents && (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Loading...</span>
-                )}
-              </div>
-              
-              {availableEvents.length === 0 && !loadingEvents ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">No upcoming events found.</p>
-              ) : (
-                <div className="overflow-x-auto pb-2">
-                  <div className="flex space-x-3" style={{ minWidth: 'max-content' }}>
-                    {loadingEvents ? (
-                      // Loading placeholders
-                      Array(4).fill(0).map((_, i) => (
-                        <div key={i} className="w-52 h-28 bg-gray-100 dark:bg-gray-700 rounded-md animate-pulse flex-shrink-0"></div>
-                      ))
-                    ) : (
-                      // Actual events
-                      availableEvents.map((event, index) => {
-                        const isSelected = selectedEventIds.includes(event.id);
-                        // Add medal styling for top events (gold, silver, bronze)
-                        const medalStyles = index < 3 ? [
-                          'border-yellow-400 dark:border-yellow-600 shadow-yellow-100 dark:shadow-yellow-900/20',
-                          'border-gray-300 dark:border-gray-500 shadow-gray-100 dark:shadow-gray-900/20',
-                          'border-amber-700 dark:border-amber-800 shadow-amber-100 dark:shadow-amber-900/20'
-                        ][index] : '';
-                        
-                        return (
-                          <div 
-                            key={event.id}
-                            onClick={() => toggleEventSelection(event.id)}
-                            className={`w-52 p-3 rounded-lg cursor-pointer flex-shrink-0 relative border-2 transition-all ${
-                              isSelected 
-                                ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-400 dark:border-blue-600 shadow-md' 
-                                : `bg-white dark:bg-gray-800 border-transparent hover:border-gray-200 dark:hover:border-gray-700 ${medalStyles}`
-                            }`}
-                          >
-                            {/* Medal indicator for top events */}
-                            {index < 3 && (
-                              <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold" 
-                                style={{ 
-                                  backgroundColor: index === 0 ? '#FFD700' : index === 1 ? '#C0C0C0' : '#CD7F32',
-                                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                                }}>
-                                {index + 1}
-                              </div>
-                            )}
-                            
-                            <div className="flex justify-between items-start mb-2">
-                              <div className="flex items-center">
-                                <TeamLogo 
-                                  abbreviation={event.home_team.abbreviation}
-                                  teamName={event.home_team.full_name}
-                                />
-                              </div>
-                              {isSelected && (
-                                <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                </svg>
-                              )}
-                            </div>
-                            <div className="text-sm font-medium line-clamp-2 h-10 mb-2">
-                              {event.home_team.full_name} vs {event.visitor_team.full_name}
-                            </div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400">
-                              {new Date(event.date).toLocaleDateString(undefined, { 
-                                weekday: 'short', 
-                                month: 'short', 
-                                day: 'numeric' 
-                              })}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            <EventSelector
+              events={availableEvents}
+              selectedEventIds={selectedEventIds}
+              toggleEventSelection={toggleEventSelection}
+              loading={loadingEvents}
+            />
           )}
 
           {/* Posts display */}

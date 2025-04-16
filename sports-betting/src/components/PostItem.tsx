@@ -5,18 +5,8 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import Image from 'next/image';
 import type { Event } from '@/types/events';
+import type { Post } from '@/types/post';
 import { Timestamp } from 'firebase/firestore';
-
-// Interfaces
-interface Post {
-  id: string;
-  content: string;
-  createdAt: Timestamp;
-  userId: string;
-  username: string;
-  userPhotoURL?: string;
-  taggedEvents?: string[]; // Array of event IDs that are tagged in this post
-}
 
 // TaggedEventItem Component
 function TaggedEventItem({ eventId }: { eventId: string }) {
@@ -240,6 +230,3 @@ export default function PostItem({ post }: { post: Post }) {
     </div>
   );
 }
-
-// Export the Post interface for use in other components
-export type { Post };
