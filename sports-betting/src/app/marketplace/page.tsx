@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useState } from 'react';
-import { collection, doc, onSnapshot, query, QuerySnapshot, DocumentData } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, QuerySnapshot, DocumentData, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
@@ -88,37 +88,42 @@ useEffect(() => {
   return () => unsubscribe();
 }, []);
 
-  // Fetch user's pending bets
+  // Fetch user's pending bets using their trade IDs (like ProfilePage) for faster load
   useEffect(() => {
-    if (!user) return;
-    const unsubscribe = onSnapshot(
-      query(collection(db, 'trades')),
-      (snapshot: QuerySnapshot<DocumentData>) => {
-        const pending = snapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() }))
-          .filter((trade: any) =>
-            trade.userId === user.uid &&
-            trade.status === 'Pending' &&
-            trade.eventId &&
-            trade.selectedTeam &&
-            typeof trade.amount === 'number' &&
-            trade.userId
-          )
-          .map((trade: any) => ({
-            id: trade.id,
-            eventId: trade.eventId,
-            eventName: trade.eventName,
-            selectedTeam: trade.selectedTeam,
-            amount: trade.amount,
-            currentStakeValue: trade.currentStakeValue,
-            forSale: trade.forSale,
-            salePrice: trade.salePrice,
-            userId: trade.userId,
-          }));
+    const fetchPendingBets = async () => {
+      if (!user) return;
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (!userDoc.exists()) {
+          console.log('User document not found in Firestore');
+          return;
+        }
+        const userData = userDoc.data() as { trades?: string[] };
+        const userTrades = userData.trades || [];
+        const pending: PendingBet[] = [];
+        for (const tradeId of userTrades) {
+          const tradeDoc = await getDoc(doc(db, 'trades', tradeId));
+          if (!tradeDoc.exists()) continue;
+          const tradeData: any = tradeDoc.data();
+          if (tradeData.status !== 'Pending') continue;
+          pending.push({
+            id: tradeDoc.id,
+            eventId: tradeData.eventId,
+            eventName: tradeData.eventName,
+            selectedTeam: tradeData.selectedTeam,
+            amount: tradeData.amount,
+            currentStakeValue: tradeData.currentStakeValue,
+            forSale: tradeData.forSale,
+            salePrice: tradeData.salePrice,
+            userId: tradeData.userId,
+          });
+        }
         setPendingBets(pending);
+      } catch (error) {
+        console.error('Error fetching pending bets:', error);
       }
-    );
-    return () => unsubscribe();
+    };
+    fetchPendingBets();
   }, [user]);
 
   // Fetch all bets for sale
@@ -233,4 +238,3 @@ useEffect(() => {
     </main>
   );
 }
-
