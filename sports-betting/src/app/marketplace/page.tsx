@@ -281,7 +281,9 @@ useEffect(() => {
                   >
                     {sellLoading === bet.id ? 'Selling...' : 'Sell'}
                   </button>
-                ) : null}
+                ) : (
+                  <span className="px-4 py-2 bg-yellow-200 text-yellow-800 rounded font-semibold">For Sale</span>
+                )}
               </div>
             </div>
           </div>
