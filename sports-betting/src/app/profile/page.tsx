@@ -923,7 +923,14 @@ export default function ProfilePage() {
           ) : (
             <div className="space-y-4">
               {posts.map((post) => (
-                <PostItem key={post.id} post={post} />
+                <PostItem 
+                  key={post.id} 
+                  post={post} 
+                  onPostDeleted={(postId) => {
+                    // Remove the deleted post from the posts array
+                    setPosts(prevPosts => prevPosts.filter(p => p.id !== postId));
+                  }}
+                />
               ))}
             </div>
           )}

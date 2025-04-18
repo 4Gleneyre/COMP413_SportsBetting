@@ -358,7 +358,11 @@ export default function ForYou() {
         ) : posts.length > 0 ? (
           <div className="space-y-6">
             {posts.map((post) => (
-              <PostItem key={post.id} post={post} />
+              <PostItem
+                key={post.id}
+                post={post}
+                onPostDeleted={(postId) => setPosts(prev => prev.filter(p => p.id !== postId))}
+              />
             ))}
           </div>
         ) : (
