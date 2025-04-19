@@ -144,7 +144,7 @@ function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: 
 }
 
 // Main PostItem Component
-export default function PostItem({ post }: { post: Post }) {
+export default function PostItem({ post, onPostDeleted }: { post: Post; onPostDeleted?: (postId: string) => void }) {
   const { user } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(post.content);
@@ -158,6 +158,8 @@ export default function PostItem({ post }: { post: Post }) {
   const [mediaType, setMediaType] = useState<'image' | 'video' | undefined>(post.mediaType);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [keepExistingMedia, setKeepExistingMedia] = useState(!!post.mediaUrl);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Check if current user is the author of the post
@@ -369,11 +371,61 @@ export default function PostItem({ post }: { post: Post }) {
     }
   };
 
+  // Handle post deletion
+  const handleDeletePost = async () => {
+    if (!isPostAuthor || !post.id) return;
+    
+    setIsDeleting(true);
+    
+    try {
+      // If the post has media, attempt to delete it from storage
+      if (post.mediaUrl) {
+        try {
+          // Extract the path from the URL
+          const urlObj = new URL(post.mediaUrl);
+          const pathMatch = urlObj.pathname.match(/\/o\/(.+?)(?:\?|$)/);
+          
+          if (pathMatch && pathMatch[1]) {
+            const decodedPath = decodeURIComponent(pathMatch[1]);
+            const storageRef = ref(storage, decodedPath);
+            await deleteObject(storageRef);
+            console.log('Deleted media file');
+          }
+        } catch (err) {
+          console.error('Error deleting media:', err);
+          // Continue with the delete even if media deletion fails
+        }
+      }
+      
+      // Call the cloud function to delete the post
+      const deletePost = httpsCallable(functions, 'deletePost');
+      await deletePost({ postId: post.id });
+      
+      // If onPostDeleted callback is provided, call it
+      if (onPostDeleted) {
+        onPostDeleted(post.id);
+      }
+      
+      console.log('Post deleted successfully');
+    } catch (err: any) {
+      console.error('Error deleting post:', err);
+      alert(err.message || 'Failed to delete post');
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  // Cancel delete confirmation
+  const cancelDelete = () => {
+    setShowDeleteConfirm(false);
+  };
+
   return (
     <div 
       className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 hover:border-gray-300 dark:hover:border-gray-600 transition-all hover:shadow-md"
     >
-      {/* Post Header with User Info & Edit Button */}
+      {/* Post Header with User Info & Edit/Delete Buttons */}
       <div className="flex items-center mb-3">
         {post.userPhotoURL ? (
           <Image
@@ -429,14 +481,23 @@ export default function PostItem({ post }: { post: Post }) {
             {post.updatedAt && ' • Edited'}
           </p>
         </div>
-        {isPostAuthor && !isEditing && (
-          <button 
-            onClick={() => setIsEditing(true)}
-            className="text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            aria-label="Edit post"
-          >
-            <FaEdit size={18} />
-          </button>
+        {isPostAuthor && !isEditing && !showDeleteConfirm && (
+          <div className="flex space-x-2">
+            <button 
+              onClick={() => setIsEditing(true)}
+              className="text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              aria-label="Edit post"
+            >
+              <FaEdit size={18} />
+            </button>
+            <button 
+              onClick={() => setShowDeleteConfirm(true)}
+              className="text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              aria-label="Delete post"
+            >
+              <FaTrash size={18} />
+            </button>
+          </div>
         )}
         {isEditing && (
           <div className="flex space-x-2">
@@ -457,7 +518,33 @@ export default function PostItem({ post }: { post: Post }) {
             </button>
           </div>
         )}
+        {showDeleteConfirm && (
+          <div className="flex space-x-2">
+            <button 
+              onClick={handleDeletePost}
+              disabled={isDeleting}
+              className="text-green-500 hover:text-green-600 dark:text-green-400 dark:hover:text-green-300 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+              aria-label="Confirm delete"
+            >
+              <FaCheck size={18} />
+            </button>
+            <button 
+              onClick={cancelDelete}
+              className="text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              aria-label="Cancel delete"
+            >
+              <FaTimes size={18} />
+            </button>
+          </div>
+        )}
       </div>
+      
+      {/* Delete Confirmation Message */}
+      {showDeleteConfirm && (
+        <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
+          <p>Are you sure you want to delete this post? This action cannot be undone.</p>
+        </div>
+      )}
       
       {/* Post Content */}
       {isEditing ? (

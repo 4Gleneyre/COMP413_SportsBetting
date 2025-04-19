@@ -986,6 +986,7 @@ export const createPost = onCall(
     maxInstances: 10,
   },
   async (request) => {
+    console.log("createPost called by user:", request.auth?.uid, "data:", request.data);
     const { content, taggedEvents, mediaUrl, mediaType } = request.data;
     const auth = request.auth;
 
@@ -1022,16 +1023,18 @@ export const createPost = onCall(
       const username = userData?.username || auth.token.name || auth.token.email?.split('@')[0] || 'User';
       
       // Create the post document
-      const postData = {
+      const postData: any = {
         content: content.trim(),
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         userId: auth.uid,
         username: username,
         userPhotoURL: auth.token.picture || null,
-        taggedEvents: taggedEvents || [], // Add tagged events to the post data
-        mediaUrl: mediaUrl || '',
-        mediaType: mediaType || undefined
+        taggedEvents: taggedEvents || []
       };
+      
+      // Add media fields if they are provided
+      if (mediaUrl) postData.mediaUrl = mediaUrl;
+      if (mediaType) postData.mediaType = mediaType;
       
       // Add the post to Firestore
       const docRef = await db.collection("posts").add(postData);
@@ -1221,6 +1224,57 @@ export const checkUsernameUnique = onCall(
     } catch (error) {
       console.error("Error checking username uniqueness:", error);
       throw new HttpsError("internal", "Failed to check username uniqueness.");
+    }
+  }
+);
+
+/**
+ * Delete a post
+ * This function allows a user to delete their own post
+ */
+export const deletePost = onCall(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+  },
+  async (request) => {
+    // Ensure the user is authenticated
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated to delete a post.");
+    }
+
+    const { postId } = request.data;
+    
+    if (!postId) {
+      throw new HttpsError("invalid-argument", "Post ID is required.");
+    }
+
+    const userId = request.auth.uid;
+    
+    try {
+      // Get the post document
+      const postRef = db.collection("posts").doc(postId);
+      const postDoc = await postRef.get();
+      
+      // Check if post exists
+      if (!postDoc.exists) {
+        throw new HttpsError("not-found", "Post not found.");
+      }
+      
+      const postData = postDoc.data();
+      
+      // Check if the current user is the author of the post
+      if (postData?.userId !== userId) {
+        throw new HttpsError("permission-denied", "You can only delete your own posts.");
+      }
+      
+      // Delete the post
+      await postRef.delete();
+      
+      return { success: true, message: "Post deleted successfully." };
+    } catch (error) {
+      console.error("Error deleting post:", error);
+      throw new HttpsError("internal", "Failed to delete post. Please try again later.");
     }
   }
 );
