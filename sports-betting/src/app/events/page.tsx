@@ -30,25 +30,66 @@ import remarkGfm from 'remark-gfm';
 import { fetchEvents, fetchEventById, formatEventDate } from '@/utils/eventFetching';
 
 // Import the TeamLogo component from the main page
-function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: string }) {
+function TeamLogo({ 
+  abbreviation, 
+  teamName, 
+  sport, 
+  teamId 
+}: { 
+  abbreviation: string; 
+  teamName: string; 
+  sport?: string; 
+  teamId?: number | string 
+}) {
   const [imageExists, setImageExists] = useState(true);
+  
+  // For soccer teams, use the football-data.org API
+  let logoUrl = `/logos/${abbreviation}.png`; // Default logo
+  
+  if (sport === 'soccer' && teamId !== undefined) {
+    // Use the football-data.org API for soccer team logos
+    logoUrl = `https://crests.football-data.org/${teamId}.png`;
+  }
 
   return imageExists ? (
     <Image
-      src={`/logos/${abbreviation}.png`}
+      src={logoUrl}
       alt={`${teamName} logo`}
-      width={48}
-      height={48}
+      width={32}
+      height={32}
       className="rounded-full"
       onError={() => setImageExists(false)}
     />
-  ) : null;
+  ) : (
+    // Fallback if image doesn't exist
+    <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center text-gray-500 dark:text-gray-400 text-xs font-medium">
+      {abbreviation?.substring(0, 2) || "?"}
+    </div>
+  );
+}
+
+// Fix formatEventDate to handle various date formats
+function safeFormatEventDate(dateValue: string | Date | undefined | null): string {
+  if (!dateValue) return 'TBD';
+  
+  // If it's already a string, use it directly
+  try {
+    const dateString = typeof dateValue === 'string' 
+      ? dateValue 
+      : dateValue instanceof Date 
+        ? dateValue.toISOString() 
+        : 'TBD';
+    return formatEventDate(dateString);
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return 'TBD';
+  }
 }
 
 export default function Events() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' } | null>(null);
+  const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' | 'draw' } | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDates, setFilterDates] = useState<[Date | null, Date | null]>([null, null]);
@@ -69,8 +110,20 @@ export default function Events() {
 
   // Function to check if date is valid
   const isValidDate = (date: any): boolean => {
-    const d = new Date(date);
-    return d instanceof Date && !isNaN(d.getTime());
+    if (!date) return false;
+    
+    // If it's a string date format
+    if (typeof date === 'string') {
+      const d = new Date(date);
+      return d instanceof Date && !isNaN(d.getTime());
+    }
+    
+    // If it's already a Date object
+    if (date instanceof Date) {
+      return !isNaN(date.getTime());
+    }
+    
+    return false;
   };
 
   /**
@@ -143,6 +196,7 @@ export default function Events() {
    */
   const loadEvents = async () => {
     console.log('loadEvents called - current lastDoc:', lastDocRef.current ? { id: lastDocRef.current.id, date: lastDocRef.current.data().date } : null);
+    
     if (!hasMore) {
       return;
     }
@@ -150,17 +204,18 @@ export default function Events() {
     setIsFetchingMore(true);
 
     try {
+      // Convert filterDates to the format expected by fetchEvents
       const result = await fetchEvents({
-        filterDates,
-        lastDoc: lastDocRef.current,
-        pageSize: 10
+        filterDates: filterDates,
+        pageSize: 10,
+        lastDoc: lastDocRef.current
       });
 
       const { events: newEvents, lastDoc, hasMore: moreResults } = result;
 
       // Update state with new events
       setEvents(prev => [...prev, ...newEvents]);
-      lastDocRef.current = lastDoc;
+      lastDocRef.current = lastDoc; // Store lastDoc
       setHasMore(moreResults);
       setLoading(false);
       
@@ -201,6 +256,18 @@ export default function Events() {
     loadEvents();
   }, []);
 
+  // Debug events data
+  useEffect(() => {
+    console.log('Events loaded:', events.length);
+    if (events.length > 0) {
+      const soccerEvents = events.filter(e => e.sport === 'soccer');
+      console.log('Soccer events:', soccerEvents.length);
+      if (soccerEvents.length > 0) {
+        console.log('First soccer event:', soccerEvents[0]);
+      }
+    }
+  }, [events]);
+
   if (loading) {
     return (
       <div className="max-w-3xl mx-auto py-8 px-4">
@@ -213,8 +280,16 @@ export default function Events() {
     );
   }
 
-  // Filter events with valid dates
-  const validEvents = events.filter(event => event.status && isValidDate(event.status));
+  // Filter events with valid dates - different handling for soccer vs basketball
+  const validEvents = events.filter(event => {
+    // Soccer events use 'datetime' or 'date' fields
+    if (event.sport === 'soccer') {
+      return isValidDate(event.datetime) || isValidDate(event.date);
+    }
+    
+    // Basketball events use 'status' field
+    return isValidDate(event.status);
+  });
 
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
@@ -257,8 +332,13 @@ export default function Events() {
             <div className="p-4">
               <div className="flex items-center justify-between mb-4">
                 <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium">
-                  Basketball
+                  {event.sport === 'soccer' ? 'Soccer' : 'Basketball'}
                 </span>
+                {event.sport === 'soccer' && event.competition && (
+                  <span className="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full text-xs font-medium">
+                    {event.competition.name}
+                  </span>
+                )}
                 <div className="flex items-center gap-2">
                   {event.trades && (
                     <div className="flex items-center">
@@ -275,21 +355,28 @@ export default function Events() {
                 <div className="text-left p-4">
                   <div className="flex items-center gap-4">
                     <TeamLogo
-                      abbreviation={event.home_team.abbreviation}
-                      teamName={event.home_team.full_name}
+                      abbreviation={event.home_team.abbreviation || ''}
+                      teamName={event.home_team.full_name || event.home_team.name || ''}
+                      sport={event.sport}
+                      teamId={event.home_team.id}
                     />
                     <div>
                       <div className="font-semibold text-lg">
-                        {event.home_team.full_name}
+                        {event.home_team.full_name || event.home_team.name || 'Home Team'}
                       </div>
                       <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        {event.homeTeamCurrentOdds}% chance
+                        {event.homeTeamCurrentOdds || '0'}% chance
                       </div>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex flex-col items-center justify-center">
+                  {event.sport === 'soccer' && event.drawOdds && (
+                    <div className="text-sm bg-yellow-100 dark:bg-yellow-900 text-yellow-600 dark:text-yellow-400 px-2 py-1 rounded mb-1">
+                      Draw: {event.drawOdds}%
+                    </div>
+                  )}
                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">VS</div>
                 </div>
 
@@ -297,15 +384,17 @@ export default function Events() {
                   <div className="flex items-center justify-end gap-4">
                     <div>
                       <div className="font-semibold text-lg">
-                        {event.visitor_team.full_name}
+                        {event.visitor_team.full_name || event.visitor_team.name || 'Away Team'}
                       </div>
                       <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        {event.visitorTeamCurrentOdds}% chance
+                        {event.visitorTeamCurrentOdds || '0'}% chance
                       </div>
                     </div>
                     <TeamLogo
-                      abbreviation={event.visitor_team.abbreviation}
-                      teamName={event.visitor_team.full_name}
+                      abbreviation={event.visitor_team.abbreviation || ''}
+                      teamName={event.visitor_team.full_name || event.visitor_team.name || ''}
+                      sport={event.sport}
+                      teamId={event.visitor_team.id}
                     />
                   </div>
                 </div>
@@ -315,7 +404,9 @@ export default function Events() {
             {/* Footer */}
             <div className="p-3 bg-gray-50 dark:bg-gray-700 text-center text-xs mt-auto">
               <span className="text-gray-500 dark:text-gray-400">
-                {formatEventDate(event.status)}
+                {event.sport === 'soccer' 
+                  ? safeFormatEventDate(event.datetime || event.date) 
+                  : safeFormatEventDate(event.status)}
               </span>
             </div>
           </div>
@@ -337,7 +428,7 @@ export default function Events() {
         <GameInfoModal
           event={selectedEvent}
           onClose={() => setSelectedEvent(null)}
-          onSelectTeam={(team: 'home' | 'visitor') => {
+          onSelectTeam={(team: 'home' | 'visitor' | 'draw') => {
             setSelectedBet({ event: selectedEvent, team });
             setSelectedEvent(null);
           }}

@@ -40,31 +40,41 @@ function formatCurrency(amount: number) {
   }).format(amount);
 }
 
-function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: string }) {
+function TeamLogo({ 
+  abbreviation, 
+  teamName, 
+  sport, 
+  teamId 
+}: { 
+  abbreviation: string; 
+  teamName: string; 
+  sport?: string; 
+  teamId?: number | string 
+}) {
   const [imageExists, setImageExists] = useState(true);
-
-  useEffect(() => {
-    fetch(`/logos/${abbreviation}.png`)
-      .then(res => {
-        if (!res.ok) {
-          setImageExists(false);
-        }
-      })
-      .catch(() => setImageExists(false));
-  }, [abbreviation]);
-
-  if (!imageExists) {
-    return null;
+  
+  // For soccer teams, use the football-data.org API
+  let logoUrl = `/logos/${abbreviation}.png`; // Default logo
+  
+  if (sport === 'soccer' && teamId !== undefined) {
+    // Use the football-data.org API for soccer team logos
+    logoUrl = `https://crests.football-data.org/${teamId}.png`;
   }
 
-  return (
+  return imageExists ? (
     <Image
-      src={`/logos/${abbreviation}.png`}
+      src={logoUrl}
       alt={`${teamName} logo`}
       width={32}
       height={32}
       className="rounded-full"
+      onError={() => setImageExists(false)}
     />
+  ) : (
+    // Fallback if image doesn't exist
+    <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center text-gray-500 dark:text-gray-400 text-xs font-medium">
+      {abbreviation?.substring(0, 2) || "?"}
+    </div>
   );
 }
 
@@ -964,6 +974,10 @@ export default function ProfilePage() {
                                 teamName={trade.selectedTeam === 'home'
                                   ? trade.event.home_team.full_name
                                   : trade.event.visitor_team.full_name}
+                                sport={trade.event?.sport}
+                                teamId={trade.selectedTeam === 'home'
+                                  ? trade.event?.home_team?.id
+                                  : trade.event?.visitor_team?.id}
                               />
                             </div>
                           )}
