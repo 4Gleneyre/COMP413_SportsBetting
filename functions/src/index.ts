@@ -5,6 +5,7 @@ import { BalldontlieAPI } from "@balldontlie/sdk";
 import OpenAI from "openai";
 import * as dotenv from "dotenv";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { FootballDataAPI } from "./services/FootballDataAPI";
 
 // Load environment variables from .env file
 dotenv.config();
@@ -12,6 +13,10 @@ dotenv.config();
 admin.initializeApp();
 const db = admin.firestore();
 const api = new BalldontlieAPI({ apiKey: "066f0ce8-a61a-4aee-82c0-e902d6ad3a0a" });
+
+// Initialize the Football Data API client
+const footballApiKey = process.env.FOOTBALL_DATA_API_KEY || "";
+const footballApi = new FootballDataAPI(footballApiKey);
 
 // Initialize the Google Generative AI client
 const geminiApiKey = process.env.GEMINI_API_KEY || "";
@@ -76,6 +81,71 @@ async function getPredictedOdds(homeTeam: any, visitorTeam: any) {
   } catch (error) {
     console.error("Error getting predicted odds from Gemini:", error);
     return { homeTeamOdds: 50, visitorTeamOdds: 50 };
+  }
+}
+
+/**
+ * Gets AI-predicted odds for a soccer match using Gemini
+ * @param homeTeam The home team data
+ * @param awayTeam The away team data
+ * @returns Promise resolving to an object with home, draw, and away team winning percentages
+ */
+async function getSoccerPredictedOdds(homeTeam: any, awayTeam: any, competition: any) {
+  try {
+    // Default odds in case the AI call fails (soccer has 3 outcomes)
+    const defaultOdds = { homeTeamOdds: 40, drawOdds: 20, awayTeamOdds: 40 };
+    
+    if (!geminiApiKey) {
+      console.warn("GEMINI_API_KEY not configured. Using default odds.");
+      return defaultOdds;
+    }
+    
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.0-flash",
+    });
+    
+    // Create a prompt with relevant team information
+    const prompt = `Predict the probability of each possible outcome in the upcoming soccer match:
+    
+    Competition: ${competition.name}
+    Home Team: ${homeTeam.name} (${homeTeam.tla})
+    Away Team: ${awayTeam.name} (${awayTeam.tla})
+    
+    Based on team statistics, recent performance, and historical matchups, what is the probability of each outcome?
+    Return the percentage chance for each outcome as JSON with the following fields:
+    - home-win: percentage chance the home team wins (as a number)
+    - draw: percentage chance of a draw (as a number)
+    - away-win: percentage chance the away team wins (as a number)
+    The percentages should add up to 100%.`;
+    
+    // Generate content with structured output
+    const response = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.2,
+        responseMimeType: "application/json",
+      },
+    });
+    
+    const result = response.response.text();
+    // Parse the JSON response
+    const odds = JSON.parse(result);
+    
+    // Validate that the odds add up to approximately 100%
+    const total = odds["home-win"] + odds["draw"] + odds["away-win"];
+    if (total < 95 || total > 105) {
+      console.warn(`Odd percentages don't sum close to 100% (${total}%). Using default odds.`);
+      return defaultOdds;
+    }
+    
+    return {
+      homeTeamOdds: odds["home-win"],
+      drawOdds: odds["draw"],
+      awayTeamOdds: odds["away-win"]
+    };
+  } catch (error) {
+    console.error("Error getting predicted soccer odds from Gemini:", error);
+    return { homeTeamOdds: 40, drawOdds: 20, awayTeamOdds: 40 };
   }
 }
 
@@ -317,7 +387,7 @@ export const placeBet = onCall({
   }
   
   const uid = request.auth.uid;
-  const { eventId, betAmount, selectedTeam } = request.data;
+  const { eventId, betAmount, selectedTeam, odds } = request.data;
 
   // Validate required input.
   if (!eventId || betAmount == null || !selectedTeam) {
@@ -326,8 +396,8 @@ export const placeBet = onCall({
   if (typeof betAmount !== "number" || betAmount <= 0) {
     throw new HttpsError("invalid-argument", "Bet amount must be a positive number.");
   }
-  if (selectedTeam !== "home" && selectedTeam !== "visitor") {
-    throw new HttpsError("invalid-argument", "Selected team must be either 'home' or 'visitor'.");
+  if (selectedTeam !== "home" && selectedTeam !== "visitor" && selectedTeam !== "draw") {
+    throw new HttpsError("invalid-argument", "Selected team must be 'home', 'visitor', or 'draw'.");
   }
 
   // Use a transaction for atomicity.
@@ -364,11 +434,19 @@ export const placeBet = onCall({
     }
     
     const eventData = eventDoc.data()!;
+    const isSoccer = eventData.sport === 'soccer';
     
     // Get the appropriate odds based on the selected team
-    const selectedOdds = selectedTeam === "home" 
-      ? eventData.homeTeamCurrentOdds 
-      : eventData.visitorTeamCurrentOdds;
+    let selectedOdds = odds; // Use provided odds if available
+    if (!selectedOdds) {
+      if (selectedTeam === "home") {
+        selectedOdds = eventData.homeTeamCurrentOdds;
+      } else if (selectedTeam === "visitor") {
+        selectedOdds = eventData.visitorTeamCurrentOdds;
+      } else if (selectedTeam === "draw" && isSoccer) {
+        selectedOdds = eventData.drawOdds || 20; // Default to 20% for draw if not set
+      }
+    }
     
     // Calculate expected payout based on odds
     // For betting, lower probability (odds) should result in higher payouts
@@ -398,42 +476,75 @@ export const placeBet = onCall({
     // Always read the current state from the event document
     let homeBetAmount = typeof eventData.homeBetAmount === "number" ? eventData.homeBetAmount : 0;
     let visitorBetAmount = typeof eventData.visitorBetAmount === "number" ? eventData.visitorBetAmount : 0;
+    let drawBetAmount = typeof eventData.drawBetAmount === "number" ? eventData.drawBetAmount : 0;
+    
     // Increment the correct team's bet amount
     if (selectedTeam === "home") {
       homeBetAmount += betAmount;
-    } else {
+    } else if (selectedTeam === "visitor") {
       visitorBetAmount += betAmount;
+    } else if (selectedTeam === "draw") {
+      drawBetAmount += betAmount;
     }
+    
     // Calculate the total bet pool
-    const totalBet = homeBetAmount + visitorBetAmount;
+    const totalBet = homeBetAmount + visitorBetAmount + (isSoccer ? drawBetAmount : 0);
+    
     // Market odds: payout ratio based on proportion of money bet
     // If no bets on a team, set odds to a default high value (e.g., 1000)
     const marketHomeOdds = homeBetAmount > 0 ? (100 * totalBet / homeBetAmount) : 1000;
     const marketVisitorOdds = visitorBetAmount > 0 ? (100 * totalBet / visitorBetAmount) : 1000;
-    // Retrieve AI odds (prefer stored, fallback to current odds, fallback to 50)
+    const marketDrawOdds = drawBetAmount > 0 ? (100 * totalBet / drawBetAmount) : 1000;
+    
+    // Retrieve AI odds (prefer stored, fallback to current odds, fallback to default)
     const aiHomeOdds = typeof eventData.homeTeamAiOdds === "number" ? eventData.homeTeamAiOdds : (typeof eventData.homeTeamCurrentOdds === "number" ? eventData.homeTeamCurrentOdds : 50);
     const aiVisitorOdds = typeof eventData.visitorTeamAiOdds === "number" ? eventData.visitorTeamAiOdds : (typeof eventData.visitorTeamCurrentOdds === "number" ? eventData.visitorTeamCurrentOdds : 50);
+    const aiDrawOdds = typeof eventData.drawAiOdds === "number" ? eventData.drawAiOdds : (typeof eventData.drawOdds === "number" ? eventData.drawOdds : (isSoccer ? 20 : 0));
+    
     // Set alpha (weight for AI odds vs market odds)
     const alpha = typeof eventData.oddsAlpha === "number" ? eventData.oddsAlpha : 0.5;
+    
     // Combine odds: odds = alpha * ai_odds + (1-alpha) * market_odds
     let rawHomeOdds = alpha * aiHomeOdds + (1 - alpha) * marketHomeOdds;
     let rawVisitorOdds = alpha * aiVisitorOdds + (1 - alpha) * marketVisitorOdds;
+    let rawDrawOdds = isSoccer ? (alpha * aiDrawOdds + (1 - alpha) * marketDrawOdds) : 0;
+    
     // --- Smoothing factor beta ---
-    const beta = 0.1; // Maximum allowed change in either direction
+    const beta = 0.1;
+    
     // Smooth home odds
     let prevHomeOdds = typeof eventData.homeTeamCurrentOdds === "number" ? eventData.homeTeamCurrentOdds : rawHomeOdds;
     let newHomeOdds = rawHomeOdds;
     if (Math.abs(rawHomeOdds - prevHomeOdds) > beta) {
       newHomeOdds = prevHomeOdds + Math.sign(rawHomeOdds - prevHomeOdds) * beta;
     }
+    
     // Smooth visitor odds
     let prevVisitorOdds = typeof eventData.visitorTeamCurrentOdds === "number" ? eventData.visitorTeamCurrentOdds : rawVisitorOdds;
     let newVisitorOdds = rawVisitorOdds;
     if (Math.abs(rawVisitorOdds - prevVisitorOdds) > beta) {
       newVisitorOdds = prevVisitorOdds + Math.sign(rawVisitorOdds - prevVisitorOdds) * beta;
     }
+    
+    // Smooth draw odds (for soccer)
+    let prevDrawOdds = typeof eventData.drawOdds === "number" ? eventData.drawOdds : rawDrawOdds;
+    let newDrawOdds = rawDrawOdds;
+    if (isSoccer && Math.abs(rawDrawOdds - prevDrawOdds) > beta) {
+      newDrawOdds = prevDrawOdds + Math.sign(rawDrawOdds - prevDrawOdds) * beta;
+    }
+    
+    // Normalize odds to ensure they sum to 100% (for soccer with draw)
+    if (isSoccer) {
+      const totalOdds = newHomeOdds + newVisitorOdds + newDrawOdds;
+      if (totalOdds > 0) {
+        newHomeOdds = (newHomeOdds / totalOdds) * 100;
+        newVisitorOdds = (newVisitorOdds / totalOdds) * 100;
+        newDrawOdds = (newDrawOdds / totalOdds) * 100;
+      }
+    }
+    
     // Atomically update event document with new state
-    transaction.update(eventRef, {
+    const eventUpdates: any = {
       trades: admin.firestore.FieldValue.arrayUnion(tradeRef.id),
       homeBetAmount,
       visitorBetAmount,
@@ -443,18 +554,37 @@ export const placeBet = onCall({
       visitorTeamAiOdds: aiVisitorOdds,
       oddsAlpha: alpha,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    };
+    
+    // Add draw-specific fields for soccer
+    if (isSoccer) {
+      eventUpdates.drawBetAmount = drawBetAmount;
+      eventUpdates.drawOdds = newDrawOdds;
+      eventUpdates.drawAiOdds = aiDrawOdds;
+    }
+    
+    transaction.update(eventRef, eventUpdates);
 
     // --- Update all previous trades for this event with new stake value ---
     const tradesSnapshot = await db.collection("trades")
       .where("eventId", "==", eventId)
       .where("status", "==", "Pending")
       .get();
+      
     tradesSnapshot.forEach(tradeDoc => {
       const trade = tradeDoc.data();
       // Only update if the odds have changed (avoid divide by zero)
       let oldOdds = trade.selectedOdds;
-      let newOdds = trade.selectedTeam === "home" ? newHomeOdds : newVisitorOdds;
+      let newOdds;
+      
+      if (trade.selectedTeam === "home") {
+        newOdds = newHomeOdds;
+      } else if (trade.selectedTeam === "visitor") {
+        newOdds = newVisitorOdds;
+      } else if (trade.selectedTeam === "draw" && isSoccer) {
+        newOdds = newDrawOdds;
+      }
+      
       if (typeof oldOdds === "number" && typeof newOdds === "number" && oldOdds > 0) {
         const newStakeValue = trade.amount * (newOdds / oldOdds);
         transaction.update(tradeDoc.ref, { currentStakeValue: newStakeValue });
@@ -1091,6 +1221,435 @@ export const checkUsernameUnique = onCall(
     } catch (error) {
       console.error("Error checking username uniqueness:", error);
       throw new HttpsError("internal", "Failed to check username uniqueness.");
+    }
+  }
+);
+
+export const getFutureSoccerMatches = onSchedule({
+  schedule: "every 1 hours",
+  timeoutSeconds: 3600,
+  memory: "1GiB"
+}, async (event) => {
+  try {
+    if (!footballApiKey) {
+      console.error("FOOTBALL_DATA_API_KEY not configured");
+      return;
+    }
+
+    // Get today's date and date 30 days from now
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 30);
+    const endDateStr = endDate.toISOString().split('T')[0];
+
+    // Define major competitions to fetch
+    const competitions = ['PL', 'BL1', 'SA', 'PD', 'FL1', 'CL']; // Premier League, Bundesliga, Serie A, La Liga, Ligue 1, Champions League
+    let allMatches: any[] = [];
+
+    // Fetch matches for each competition
+    for (const competitionCode of competitions) {
+      try {
+        const response = await footballApi.getMatchesByCompetition(
+          competitionCode, 
+          { dateFrom: todayStr, dateTo: endDateStr }
+        );
+        
+        if (response && response.matches) {
+          allMatches = [...allMatches, ...response.matches];
+        }
+      } catch (err) {
+        console.error(`Error fetching matches for competition ${competitionCode}:`, err);
+      }
+      
+      // Add a small delay between API calls to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    console.log(`Found ${allMatches.length} upcoming soccer matches`);
+
+    // Batch write to Firestore with chunking
+    const batchSize = 500; // Firestore batch limit
+    const batches = [];
+
+    for (let i = 0; i < allMatches.length; i += batchSize) {
+      const batch = db.batch();
+      const chunk = allMatches.slice(i, i + batchSize);
+
+      // Process each match in the chunk
+      for (const match of chunk) {
+        try {
+          // Get AI-predicted odds for this match
+          const predictedOdds = await getSoccerPredictedOdds(
+            match.homeTeam,
+            match.awayTeam,
+            match.competition
+          );
+          
+          // Transform soccer match to fit our Event schema
+          const transformedMatch = {
+            id: `soccer_${match.id}`,
+            date: match.utcDate,
+            datetime: match.utcDate,
+            sport: 'soccer',
+            home_team: {
+              id: match.homeTeam.id,
+              full_name: match.homeTeam.name,
+              abbreviation: match.homeTeam.tla || match.homeTeam.shortName,
+              city: match.homeTeam.address || null,
+              logo: match.homeTeam.crest
+            },
+            visitor_team: {
+              id: match.awayTeam.id,
+              full_name: match.awayTeam.name,
+              abbreviation: match.awayTeam.tla || match.awayTeam.shortName,
+              city: match.awayTeam.address || null,
+              logo: match.awayTeam.crest
+            },
+            home_team_score: match.score.fullTime?.home || 0,
+            visitor_team_score: match.score.fullTime?.away || 0,
+            period: 0,
+            status: match.status,
+            time: null,
+            season: new Date().getFullYear(),
+            postseason: match.stage !== 'REGULAR_SEASON',
+            competition: {
+              id: match.competition.id,
+              name: match.competition.name,
+              logo: match.competition.emblem
+            },
+            // Use AI-predicted odds
+            homeTeamCurrentOdds: predictedOdds.homeTeamOdds,
+            visitorTeamCurrentOdds: predictedOdds.awayTeamOdds,
+            drawOdds: predictedOdds.drawOdds,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          };
+          
+          const docRef = db.collection("events").doc(transformedMatch.id);
+          // Set with merge: true to update existing documents
+          batch.set(docRef, transformedMatch, { merge: true });
+
+          // Create the oddsHistory subcollection with initial odds
+          const oddsHistoryRef = docRef.collection("oddsHistory").doc();
+          batch.set(oddsHistoryRef, {
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            homeTeamOdds: predictedOdds.homeTeamOdds,
+            drawOdds: predictedOdds.drawOdds,
+            awayTeamOdds: predictedOdds.awayTeamOdds,
+            source: "gemini-ai"
+          });
+        } catch (err) {
+          console.error(`Error processing soccer match ${match.id}:`, err);
+        }
+      }
+
+      batches.push(batch.commit());
+    }
+
+    // Execute all batches
+    await Promise.all(batches);
+
+    console.log(`${allMatches.length} soccer matches processed successfully`);
+  } catch (error) {
+    console.error("Error processing soccer matches:", error);
+  }
+});
+
+export const updateRecentSoccerMatches = onSchedule("every 5 minutes", async (event) => {
+  try {
+    if (!footballApiKey) {
+      console.error("FOOTBALL_DATA_API_KEY not configured");
+      return;
+    }
+    // Get matches from 3 days ago to today
+    const today = new Date();
+    
+    // Create start date (3 days ago)
+    const startDate = new Date();
+    startDate.setDate(today.getDate() - 3);
+    
+    // Create end date (today)
+    const endDate = new Date(today);
+    
+    // Format dates as YYYY-MM-DD
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+    
+    console.log(`Fetching soccer matches from ${startDateStr} to ${endDateStr}`);
+
+    // Using proper comma-separated format for status param
+    const response = await footballApi.getMatches({
+      dateFrom: startDateStr,
+      dateTo: endDateStr,
+      status: 'FINISHED,IN_PLAY,PAUSED'
+    });
+
+    if (!response || !response.matches) {
+      console.log("No recent soccer matches to update");
+      return;
+    }
+
+    const allMatches = response.matches;
+    console.log(`Found ${allMatches.length} recent soccer matches to update`);
+
+    // Batch update Firestore event documents
+    const batchSize = 500;
+    const batches = [];
+
+    for (let i = 0; i < allMatches.length; i += batchSize) {
+      const batch = db.batch();
+      const chunk = allMatches.slice(i, i + batchSize);
+
+      for (const match of chunk) {
+        // Check if winner information exists from API
+        let winnerInfo = null;
+        if (match.score.fullTime) {
+          const homeScore = match.score.fullTime.home || 0;
+          const awayScore = match.score.fullTime.away || 0;
+          
+          if (homeScore > awayScore) {
+            winnerInfo = "HOME_TEAM";
+          } else if (awayScore > homeScore) {
+            winnerInfo = "AWAY_TEAM";
+          } else {
+            winnerInfo = "DRAW";
+          }
+        }
+
+        // Create more complete document
+        const transformedMatch = {
+          id: `soccer_${match.id}`,
+          home_team_score: match.score.fullTime?.home || 0,
+          visitor_team_score: match.score.fullTime?.away || 0,
+          status: match.status,
+          score: {
+            ...match.score,
+            winner: match.score.winner || winnerInfo
+          },
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+        
+        const docRef = db.collection("events").doc(transformedMatch.id);
+        batch.set(docRef, transformedMatch, { merge: true });
+
+        console.log(`Match ${match.id} data sample: ${JSON.stringify(match.score)}`);
+      }
+
+      batches.push(batch.commit());
+    }
+
+    await Promise.all(batches);
+    console.log(`Updated ${allMatches.length} recent soccer matches successfully`);
+
+    // Process completed matches to settle bets, similar to NBA implementation
+    for (const match of allMatches) {
+      if (match.status === "FINISHED") {
+        // Query for pending trades associated with this event.
+        const transformedMatchId = `soccer_${match.id}`;
+        const tradesSnapshot = await db
+          .collection("trades")
+          .where("eventId", "==", transformedMatchId)
+          .where("status", "==", "Pending")
+          .get();
+
+        if (tradesSnapshot.empty) continue;
+
+        // Determine result - soccer has 3 possible outcomes (home, away, draw)
+        let winningTeam: "home" | "visitor" | "draw" | null = null;
+        if (match.score.winner === "HOME_TEAM") {
+          winningTeam = "home";
+        } else if (match.score.winner === "AWAY_TEAM") {
+          winningTeam = "visitor";
+        } else if (match.score.winner === "DRAW") {
+          winningTeam = "draw";
+        }
+
+        // Fallback to determine winner by scores if score.winner is missing
+        if (!winningTeam && match.home_team_score !== undefined && match.visitor_team_score !== undefined) {
+          if (match.home_team_score > match.visitor_team_score) {
+            winningTeam = "home";
+          } else if (match.visitor_team_score > match.home_team_score) {
+            winningTeam = "visitor";
+          } else {
+            winningTeam = "draw";
+          }
+        }
+
+        // Prepare a batch for updating trades
+        const tradeBatch = db.batch();
+        const userUpdates: { [userId: string]: { walletIncrement: number, pnlIncrement: number } } = {};
+
+        // Process each trade
+        for (const tradeDoc of tradesSnapshot.docs) {
+          const trade = tradeDoc.data();
+          const userId = trade.userId;
+          const betAmount = trade.amount;
+          // Use selectedOdds instead of odds
+          const selectedTeam = trade.selectedTeam;
+          
+          // Check if the user won the bet
+          const userWon = selectedTeam === winningTeam;
+          
+          // Update trade status
+          tradeBatch.update(tradeDoc.ref, { 
+            status: userWon ? "Won" : "Lost"
+          });
+          
+          // Track user updates
+          if (!userUpdates[userId]) {
+            userUpdates[userId] = {
+              walletIncrement: 0,
+              pnlIncrement: 0
+            };
+          }
+          
+          // PnL is payout - bet amount
+          const pnl = userWon ? (trade.expectedPayout || 0) - betAmount : -betAmount;
+          
+          // If user won, add the payout to their wallet
+          // If user lost, the bet amount was already deducted when placing the bet
+          if (userWon) {
+            userUpdates[userId].walletIncrement += trade.expectedPayout || 0;
+          }
+          
+          // Add the PnL to the user's total PnL
+          userUpdates[userId].pnlIncrement += pnl;
+        }
+        
+        // Update each user's data
+        for (const userId in userUpdates) {
+          const userRef = db.collection("users").doc(userId);
+          const update = userUpdates[userId];
+          
+          tradeBatch.update(userRef, {
+            walletBalance: admin.firestore.FieldValue.increment(update.walletIncrement),
+            lifetimePnl: admin.firestore.FieldValue.increment(update.pnlIncrement)
+          });
+        }
+        
+        // Commit the updates
+        await tradeBatch.commit();
+      }
+    }
+  } catch (error) {
+    console.error("Error updating recent soccer matches:", error);
+  }
+});
+
+export const getSoccerMatchBettingAnalysis = onCall(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+  },
+  async (request) => {
+    // Ensure the user is authenticated
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated.");
+    }
+
+    // Get the input parameters
+    const { homeTeam, awayTeam, competition, matchDate } = request.data;
+
+    // Validate required input
+    if (!homeTeam || !awayTeam || !matchDate) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Missing required fields: homeTeam, awayTeam, and matchDate are required."
+      );
+    }
+
+    try {
+      // Initialize OpenAI client with API key
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+      });
+
+      // Call OpenAI with web search enabled
+      const response = await openai.responses.create({
+        model: "gpt-4o",
+        tools: [
+          { 
+            type: "web_search_preview",
+            search_context_size: "high"
+          }
+        ],
+        input: `Provide a detailed sports betting analysis for the soccer match between ${homeTeam} and ${awayTeam}${competition ? ' in the ' + competition : ''} scheduled for ${matchDate}. 
+                Include the following:
+                1. Recent team performance and trends
+                2. Key player stats and any injury updates
+                3. Head-to-head history between these teams
+                4. Current betting odds (home win, draw, away win)
+                5. Expert opinions and predictions
+                6. Relevant statistical trends that might impact betting decisions
+                
+                Format this information in a clear, organized manner for someone making a betting decision.
+                Include citations to your sources.`,
+        tool_choice: { type: "web_search_preview" },
+        temperature: 0.2,
+      });
+
+      // Get the analysis text from the response
+      const analysisText = response.output_text || '';
+      
+      // Log the completion for debugging
+      console.log(`Completed search request for ${homeTeam} vs ${awayTeam} soccer match analysis`);
+
+      // Extract citations if available (using same logic as NBA)
+      let citations: Array<{text: string, url: string, title: string}> = [];
+      
+      try {
+        // Access annotations if available in the right format
+        const messageItem = response.output.find(item => item.type === 'message');
+        if (messageItem && 'content' in messageItem) {
+          const content = messageItem.content;
+          if (Array.isArray(content) && content.length > 0 && 'annotations' in content[0]) {
+            const annotations = content[0].annotations;
+            if (Array.isArray(annotations)) {
+              citations = annotations
+                .filter(anno => anno.type === 'url_citation')
+                .map(anno => {
+                  const urlCitation = anno as { 
+                    type: string; 
+                    text?: string;
+                    start_index?: number; 
+                    end_index?: number; 
+                    url?: string; 
+                    title?: string 
+                  };
+                  
+                  return {
+                    text: urlCitation.start_index !== undefined && urlCitation.end_index !== undefined 
+                          ? analysisText.substring(urlCitation.start_index, urlCitation.end_index)
+                          : 'Citation',
+                    url: urlCitation.url || '#',
+                    title: urlCitation.title || 'Source'
+                  };
+                });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to extract soccer match citations:', e);
+      }
+
+      // Return the analysis results with citations if available
+      return {
+        analysis: analysisText,
+        citations: citations,
+        metadata: {
+          homeTeam,
+          awayTeam,
+          competition,
+          matchDate,
+          generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }
+      };
+    } catch (error) {
+      console.error("Error generating soccer betting analysis:", error);
+      throw new HttpsError(
+        "internal",
+        "Failed to generate betting analysis. Please try again later."
+      );
     }
   }
 );
