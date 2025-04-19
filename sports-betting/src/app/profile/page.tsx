@@ -222,7 +222,7 @@ export default function ProfilePage() {
   const { user, username } = useAuth();
   const [isAddFundsModalOpen, setIsAddFundsModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-  const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' } | null>(null);
+  const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' | 'draw' } | null>(null);
   const [activeTab, setActiveTab] = useState<'trades' | 'posts'>('posts');
   const [newPostContent, setNewPostContent] = useState('');
   const [isSubmittingPost, setIsSubmittingPost] = useState(false);

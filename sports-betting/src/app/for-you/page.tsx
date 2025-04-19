@@ -40,7 +40,7 @@ export default function ForYou() {
   const [topEvents, setTopEvents] = useState<Event[]>([]);
   const [loadingTopEvents, setLoadingTopEvents] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-  const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' } | null>(null);
+  const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' | 'draw' } | null>(null);
   const { user } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
