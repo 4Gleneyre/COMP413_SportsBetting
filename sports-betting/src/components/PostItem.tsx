@@ -13,6 +13,7 @@ import { functions } from '@/lib/firebase';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { FaEdit, FaCheck, FaTimes, FaTrash } from 'react-icons/fa';
 import EventSelector from './EventSelector';
+import { useRouter } from 'next/navigation';
 
 // TaggedEventItem Component
 function TaggedEventItem({ eventId }: { eventId: string }) {
@@ -146,6 +147,7 @@ function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: 
 // Main PostItem Component
 export default function PostItem({ post, onPostDeleted }: { post: Post; onPostDeleted?: (postId: string) => void }) {
   const { user } = useAuth();
+  const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(post.content);
   const [taggedEvents, setTaggedEvents] = useState<string[]>(post.taggedEvents || []);
@@ -421,65 +423,75 @@ export default function PostItem({ post, onPostDeleted }: { post: Post; onPostDe
     setShowDeleteConfirm(false);
   };
 
+  // Handle navigating to user profile
+  const handleUserProfileClick = (userId: string, username: string) => {
+    router.push(`/profile?userId=${userId}&username=${encodeURIComponent(username)}`);
+  };
+
   return (
     <div 
       className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 hover:border-gray-300 dark:hover:border-gray-600 transition-all hover:shadow-md"
     >
       {/* Post Header with User Info & Edit/Delete Buttons */}
       <div className="flex items-center mb-3">
-        {post.userPhotoURL ? (
-          <Image
-            src={post.userPhotoURL}
-            alt={post.username}
-            width={40}
-            height={40}
-            className="rounded-full mr-3"
-          />
-        ) : (
-          <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-600 mr-3 flex items-center justify-center text-gray-600 dark:text-gray-300 font-semibold">
-            {post.username.charAt(0).toUpperCase()}
-          </div>
-        )}
-        <div className="flex-grow">
-          <p className="font-medium">{post.username}</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {(() => {
-              // Helper function to format date consistently
-              const formatDate = (date: Date) => {
-                return date.toLocaleDateString(undefined, {
-                  weekday: 'short',
-                  month: 'short',
-                  day: 'numeric',
-                  hour: 'numeric',
-                  minute: '2-digit'
-                });
-              };
-              
-              try {
-                // Handle different timestamp formats
-                if (typeof post.createdAt === 'string') {
-                  return formatDate(new Date(post.createdAt));
-                } else if (post.createdAt && typeof post.createdAt.toDate === 'function') {
-                  // Firebase Timestamp object
-                  return formatDate(post.createdAt.toDate());
-                } else if (post.createdAt instanceof Date) {
-                  return formatDate(post.createdAt);
-                } else {
-                  // Fallback for any other format - try to convert to Date
-                  const timestamp = post.createdAt as any;
-                  if (timestamp && timestamp.seconds) {
-                    // Handle Firestore Timestamp format {seconds: number, nanoseconds: number}
-                    return formatDate(new Date(timestamp.seconds * 1000));
+        <div 
+          onClick={() => handleUserProfileClick(post.userId, post.username)}
+          className="flex items-center cursor-pointer hover:opacity-80 transition-opacity"
+        >
+          {post.userPhotoURL ? (
+            <Image
+              src={post.userPhotoURL}
+              alt={post.username}
+              width={40}
+              height={40}
+              className="rounded-full mr-3"
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-600 mr-3 flex items-center justify-center text-gray-600 dark:text-gray-300 font-semibold">
+              {post.username.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div className="flex-grow">
+            <p className="font-medium text-blue-600 dark:text-blue-400 hover:underline">{post.username}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {(() => {
+                // Helper function to format date consistently
+                const formatDate = (date: Date) => {
+                  return date.toLocaleDateString(undefined, {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit'
+                  });
+                };
+                
+                try {
+                  // Handle different timestamp formats
+                  if (typeof post.createdAt === 'string') {
+                    return formatDate(new Date(post.createdAt));
+                  } else if (post.createdAt && typeof post.createdAt.toDate === 'function') {
+                    // Firebase Timestamp object
+                    return formatDate(post.createdAt.toDate());
+                  } else if (post.createdAt instanceof Date) {
+                    return formatDate(post.createdAt);
+                  } else {
+                    // Fallback for any other format - try to convert to Date
+                    const timestamp = post.createdAt as any;
+                    if (timestamp && timestamp.seconds) {
+                      // Handle Firestore Timestamp format {seconds: number, nanoseconds: number}
+                      return formatDate(new Date(timestamp.seconds * 1000));
+                    }
+                    return "Unknown date";
                   }
-                  return "Unknown date";
+                } catch (error) {
+                  console.error("Error formatting date:", error);
+                  return "Date error";
                 }
-              } catch (error) {
-                console.error("Error formatting date:", error);
-                return "Date error";
-              }
-            })()}
-            {post.updatedAt && ' • Edited'}
-          </p>
+              })()}
+              {post.updatedAt && ' • Edited'}
+            </p>
+          </div>
         </div>
         {isPostAuthor && !isEditing && !showDeleteConfirm && (
           <div className="flex space-x-2">
