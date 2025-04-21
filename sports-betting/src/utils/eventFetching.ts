@@ -17,6 +17,7 @@ import type { Event } from '@/types/events';
  */
 export interface EventFetchOptions {
   filterDates?: [Date | null, Date | null];
+  sportFilter?: 'soccer' | 'basketball' | null;
   searchQuery?: string;
   pageSize?: number;
   lastDoc?: any;
@@ -28,10 +29,13 @@ export interface EventFetchOptions {
 export const fetchEvents = async (options: EventFetchOptions = {}) => {
   const {
     filterDates = [null, null],
+    sportFilter = null,
     searchQuery = '',
     pageSize = 10,
     lastDoc = null
   } = options;
+
+  console.log('[fetchEvents] Options:', options); // Log incoming options
 
   try {
     const eventsRef = collection(db, 'events');
@@ -51,6 +55,15 @@ export const fetchEvents = async (options: EventFetchOptions = {}) => {
       constraints.push(where('date', '>=', today));
     }
 
+    // Add sport filter if selected
+    if (sportFilter) {
+      console.log(`[fetchEvents] Applying sport filter: ${sportFilter}`);
+  if (sportFilter === 'soccer') {
+    // only soccer
+    constraints.push(where('sport', '==', 'soccer'));
+  }
+    }
+
     // If search query is provided, fetch a larger batch to search within
     const batchSize = searchQuery.trim() !== '' ? 500 : pageSize;
     
@@ -67,25 +80,39 @@ export const fetchEvents = async (options: EventFetchOptions = {}) => {
     }
 
     // Create and execute query
+    console.log('[fetchEvents] Query constraints:', constraints); // Log the final constraints
     let q = query(eventsRef, ...constraints);
     const querySnapshot = await getDocs(q);
+    console.log(`[fetchEvents] Query returned ${querySnapshot.docs.length} documents.`); // Log number of docs returned
     
     // Process results
     if (!querySnapshot.empty) {
-      let newEvents: Event[] = querySnapshot.docs.map((docSnap) => {
+      let newEvents: Event[] = querySnapshot.docs.map((docSnap, index) => {
         const data = docSnap.data() as Event;
+        console.log(`[fetchEvents] Doc ${index} sport:`, data.sport); // Log sport field of each doc
         return {
           ...data,
           id: docSnap.id,
+          // Set default sport to 'basketball' if not specified
+          sport: data.sport || 'basketball'
         };
       });
+
+      if (sportFilter === 'basketball') {
+        newEvents = newEvents.filter(ev => ev.sport !== 'soccer');
+        console.log(
+          `[fetchEvents] ${newEvents.length} events remaining after basketball filter.`
+        );
+      }
 
       // Store the last document for pagination (before filtering)
       const lastDocument = querySnapshot.docs[querySnapshot.docs.length - 1];
       
+      // No need for additional sport filtering for basketball since Firestore query handles it
+        
       // Apply search filter if provided
       if (searchQuery.trim() !== '') {
-        console.log(`Filtering ${newEvents.length} events by search query: "${searchQuery}"`);
+        console.log(`[fetchEvents] Filtering ${newEvents.length} events by search query: "${searchQuery}"`);
         const searchLower = searchQuery.toLowerCase();
         newEvents = newEvents.filter(event => {
           const homeTeamName = (event.home_team?.full_name || event.home_team?.name || '').toLowerCase();
@@ -98,11 +125,13 @@ export const fetchEvents = async (options: EventFetchOptions = {}) => {
                  homeTeamAbbr.includes(searchLower) ||
                  visitorTeamAbbr.includes(searchLower);
         });
+        console.log(`[fetchEvents] ${newEvents.length} events remaining after search filter.`); // Log count after search
         
         // Limit to pageSize after filtering
         newEvents = newEvents.slice(0, pageSize);
       }
 
+      console.log(`[fetchEvents] Returning ${newEvents.length} events.`); // Log final count
       // Return events and pagination info
       return {
         events: newEvents,
@@ -112,6 +141,7 @@ export const fetchEvents = async (options: EventFetchOptions = {}) => {
           : querySnapshot.docs.length === batchSize // For regular queries, use batch size
       };
     } else {
+      console.log('[fetchEvents] No documents returned, returning empty.'); // Log empty result
       return {
         events: [],
         lastDoc: null,
@@ -119,7 +149,7 @@ export const fetchEvents = async (options: EventFetchOptions = {}) => {
       };
     }
   } catch (error) {
-    console.error('Error fetching events:', error);
+    console.error('[fetchEvents] Error fetching events:', error); // Log errors
     return {
       events: [],
       lastDoc: null,

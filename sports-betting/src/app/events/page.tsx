@@ -93,6 +93,7 @@ export default function Events() {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDates, setFilterDates] = useState<[Date | null, Date | null]>([null, null]);
+  const [sportFilter, setSportFilter] = useState<'soccer' | 'basketball' | null>(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const { user } = useAuth();
 
@@ -100,6 +101,11 @@ export default function Events() {
   useEffect(() => {
     console.log('filterDates changed:', filterDates);
   }, [filterDates]);
+
+  // Add debug logging for sport filter
+  useEffect(() => {
+    console.log('sportFilter changed:', sportFilter);
+  }, [sportFilter]);
 
   // For Firestore pagination
   const lastDocRef = useRef<any>(null);
@@ -189,7 +195,7 @@ export default function Events() {
     setHasMore(true);
     lastDocRef.current = null;
     loadEvents();
-  }, [searchQuery, filterDates]);
+  }, [searchQuery, filterDates, sportFilter]);
 
   /**
    * Fetch the next batch of events (10 at a time) using shared utility
@@ -207,6 +213,7 @@ export default function Events() {
       // Convert filterDates to the format expected by fetchEvents
       const result = await fetchEvents({
         filterDates: filterDates,
+        sportFilter: sportFilter,
         searchQuery: searchQuery,
         pageSize: 10,
         lastDoc: lastDocRef.current
@@ -450,7 +457,9 @@ export default function Events() {
           <div className="absolute inset-0 bg-black opacity-50" onClick={() => setShowFilterModal(false)}></div>
           <div className="bg-white dark:bg-gray-800 p-6 rounded-lg z-10 w-11/12 max-w-md">
             <h2 className="text-2xl font-bold mb-4">Filters</h2>
-            <div className="mb-4">
+            
+            {/* Date Range Filter */}
+            <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Date Range</label>
               <DateRangePicker
                 startDate={filterDates[0]}
@@ -458,10 +467,53 @@ export default function Events() {
                 onChange={setFilterDates}
               />
             </div>
+            
+            {/* Sport Filter */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Sport</label>
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => setSportFilter(null)}
+                  className={`px-4 py-2 rounded-lg transition-colors ${
+                    sportFilter === null
+                      ? 'bg-blue-600 text-white'
+                      : 'border border-gray-300 dark:border-gray-600 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setSportFilter('soccer')}
+                  className={`px-4 py-2 rounded-lg transition-colors ${
+                    sportFilter === 'soccer'
+                      ? 'bg-blue-600 text-white'
+                      : 'border border-gray-300 dark:border-gray-600 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  Soccer
+                </button>
+                <button
+                  onClick={() => setSportFilter('basketball')}
+                  className={`px-4 py-2 rounded-lg transition-colors ${
+                    sportFilter === 'basketball'
+                      ? 'bg-blue-600 text-white'
+                      : 'border border-gray-300 dark:border-gray-600 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  Basketball
+                </button>
+              </div>
+            </div>
+            
+            {/* Action Buttons */}
             <div className="flex justify-end gap-2">
               <button
                 className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                onClick={() => { setFilterDates([null, null]); setShowFilterModal(false); }}
+                onClick={() => { 
+                  setFilterDates([null, null]);
+                  setSportFilter(null);
+                  setShowFilterModal(false);
+                }}
               >
                 Clear Filters
               </button>
