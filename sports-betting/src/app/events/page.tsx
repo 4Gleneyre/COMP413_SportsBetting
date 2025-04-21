@@ -335,11 +335,6 @@ export default function Events() {
                 <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium">
                   {event.sport === 'soccer' ? 'Soccer' : 'Basketball'}
                 </span>
-                {event.sport === 'soccer' && event.competition && (
-                  <span className="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full text-xs font-medium">
-                    {event.competition.name}
-                  </span>
-                )}
                 <div className="flex items-center gap-2">
                   {event.trades && (
                     <div className="flex items-center">
@@ -376,6 +371,11 @@ export default function Events() {
                   {event.sport === 'soccer' && event.drawOdds && (
                     <div className="text-sm bg-yellow-100 dark:bg-yellow-900 text-yellow-600 dark:text-yellow-400 px-2 py-1 rounded mb-1">
                       Draw: {event.drawOdds}%
+                    </div>
+                  )}
+                  {event.sport === 'soccer' && event.competition && (
+                    <div className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 px-3 py-1 rounded-full mb-2">
+                      {event.competition.name}
                     </div>
                   )}
                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">VS</div>

@@ -537,9 +537,9 @@ export const placeBet = onCall({
     if (isSoccer) {
       const totalOdds = newHomeOdds + newVisitorOdds + newDrawOdds;
       if (totalOdds > 0) {
-        newHomeOdds = (newHomeOdds / totalOdds) * 100;
-        newVisitorOdds = (newVisitorOdds / totalOdds) * 100;
-        newDrawOdds = (newDrawOdds / totalOdds) * 100;
+        newHomeOdds = Math.round((newHomeOdds / totalOdds) * 100);
+        newVisitorOdds = Math.round((newVisitorOdds / totalOdds) * 100);
+        newDrawOdds = Math.round((newDrawOdds / totalOdds) * 100);
       }
     }
     
@@ -1095,7 +1095,7 @@ export const getFutureSoccerMatches = onSchedule({
   }
 });
 
-export const updateRecentSoccerMatches = onSchedule("every 5 minutes", async (event) => {
+export const updateRecentSoccerMatches = onSchedule("every 1 hours", async (event) => {
   try {
     if (!footballApiKey) {
       console.error("FOOTBALL_DATA_API_KEY not configured");
