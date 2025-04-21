@@ -4,19 +4,42 @@ import type { Event } from '@/types/events';
 import DateRangePicker from '@/components/DateRangePicker';
 import { formatEventDate, fetchEvents } from '@/utils/eventFetching';
 
-function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: string }) {
-  const [imageExists, setImageExists] = React.useState(true);
+function TeamLogo({ 
+  abbreviation, 
+  teamName, 
+  sport, 
+  teamId 
+}: { 
+  abbreviation: string; 
+  teamName: string; 
+  sport?: string; 
+  teamId?: number | string 
+}) {
+  const [imageExists, setImageExists] = useState(true);
+  
+  // For soccer teams, use the football-data.org API
+  let logoUrl = `/logos/${abbreviation}.png`; // Default logo
+  
+  if (sport === 'soccer' && teamId !== undefined) {
+    // Use the football-data.org API for soccer team logos
+    logoUrl = `https://crests.football-data.org/${teamId}.png`;
+  }
 
   return imageExists ? (
     <Image
-      src={`/logos/${abbreviation}.png`}
+      src={logoUrl}
       alt={`${teamName} logo`}
       width={36}
       height={36}
       className="rounded-full"
       onError={() => setImageExists(false)}
     />
-  ) : null;
+  ) : (
+    // Fallback if image doesn't exist
+    <div className="w-9 h-9 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center text-gray-500 dark:text-gray-400 text-xs font-medium">
+      {abbreviation?.substring(0, 2) || "?"}
+    </div>
+  );
 }
 
 interface EventSelectorProps {
@@ -109,6 +132,17 @@ export default function EventSelector({
     
     setFilteredEvents(filtered);
   }, [events, searchQuery]);
+
+  function safeFormatEventDate(dateValue: string | undefined | null): string {
+    if (!dateValue) return 'TBD';
+    
+    try {
+      return formatEventDate(dateValue);
+    } catch (error) {
+      console.error('Error formatting date:', error, dateValue);
+      return 'TBD';
+    }
+  }
 
   if (loading) {
     return (
@@ -222,7 +256,7 @@ export default function EventSelector({
             <div className="p-3">
               <div className="flex justify-between items-center mb-2">
                 <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-full text-xs font-medium">
-                  Basketball
+                  {event.sport === 'soccer' ? 'Soccer' : 'Basketball'}
                 </span>
                 <div className="w-5 h-5 flex items-center justify-center">
                   {selectedEventIds.includes(event.id) ? (
@@ -243,6 +277,8 @@ export default function EventSelector({
                     <TeamLogo
                       abbreviation={event.home_team.abbreviation}
                       teamName={event.home_team.full_name}
+                      sport={event.sport}
+                      teamId={event.home_team.id}
                     />
                     <div>
                       <div className="font-semibold">
@@ -272,6 +308,8 @@ export default function EventSelector({
                     <TeamLogo
                       abbreviation={event.visitor_team.abbreviation}
                       teamName={event.visitor_team.full_name}
+                      sport={event.sport}
+                      teamId={event.visitor_team.id}
                     />
                   </div>
                 </div>
@@ -280,7 +318,9 @@ export default function EventSelector({
             
             <div className="p-2 bg-gray-50 dark:bg-gray-700 text-center text-xs">
               <span className="text-gray-500 dark:text-gray-400">
-                {formatEventDate(event.status)}
+                {event.sport === 'soccer' 
+                  ? safeFormatEventDate(event.datetime || event.date) 
+                  : safeFormatEventDate(event.status)}
               </span>
             </div>
           </div>

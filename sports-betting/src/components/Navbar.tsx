@@ -64,7 +64,7 @@ export function Navbar() {
             </Link>
             {user && (
               <Link 
-                href="/profile" 
+                href={`/profile?userId=${user.uid}`} 
                 className={getLinkClassName('/profile')}
               >
                 Profile
@@ -88,7 +88,7 @@ export function Navbar() {
                     @{username}
                   </div>
                 )}
-                <Link href="/profile">
+                <Link href={`/profile?userId=${user.uid}`}>
                   <DropdownMenuItem className="cursor-pointer">
                     Profile
                   </DropdownMenuItem>
