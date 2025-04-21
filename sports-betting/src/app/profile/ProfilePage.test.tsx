@@ -7,19 +7,24 @@ import React from 'react';
 
 // Mock the necessary dependencies
 jest.mock('@/contexts/AuthContext');
-jest.mock('firebase/firestore');
-jest.mock('firebase/firestore', () => ({
-  getDoc: jest.fn(),
-  getDocs: jest.fn(),
-  query: jest.fn(),
-  where: jest.fn(),
-  orderBy: jest.fn(),
-  limit: jest.fn(),
-  collection: jest.fn(),
-  doc: jest.fn((db, collectionName, docId) => ({
-    path: `${collectionName}/${docId}`
-  }))
-}));
+jest.mock('firebase/firestore', () => {
+  const original = jest.requireActual('firebase/firestore');
+  return {
+
+    getDoc:      jest.fn(),
+    getDocs:     jest.fn(),
+    query:       jest.fn(),
+    where:       jest.fn(),
+    orderBy:     jest.fn(),
+    limit:       jest.fn(),
+    collection:  jest.fn(),
+    doc:         jest.fn((db, col, id) => ({ path: `${col}/${id}` })),
+    onSnapshot: jest.fn((docRef, callback) => {
+
+      return () => {};
+    }),
+  };
+});
 jest.mock('@/lib/firebase', () => ({
   db: {},
   functions: {}

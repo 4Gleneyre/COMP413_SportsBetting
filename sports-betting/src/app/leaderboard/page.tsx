@@ -52,7 +52,9 @@ export default function LeaderboardPage() {
       setUsers(data.users);
       setHasMore(data.hasMore);
     } catch (error) {
-      console.error('Error fetching leaderboard:', error);
+      if (process.env.NODE_ENV !== 'test') {
+                console.error('Error fetching leaderboard:', error);
+              }
     } finally {
       setLoading(false);
     }
