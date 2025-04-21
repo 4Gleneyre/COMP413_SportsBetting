@@ -52,7 +52,7 @@ function TeamLogo({
   teamId?: number | string 
 }) {
   const [imageExists, setImageExists] = useState(true);
-  
+
   // For soccer teams, use the football-data.org API
   let logoUrl = `/logos/${abbreviation}.png`; // Default logo
   
@@ -387,7 +387,7 @@ export default function ProfilePage() {
       try {
         console.log('Fetching own user data for:', targetUserId);
         setLoading(true); // Start loading for own profile data
-
+        
         // Get user document for wallet balance and PnL
         const userDoc = await getDoc(doc(db, 'users', targetUserId));
         if (!userDoc.exists()) {
@@ -401,7 +401,7 @@ export default function ProfilePage() {
         // Set wallet balance and pnl only for own profile
         setWalletBalance(userData.walletBalance || 0);
         setLifetimePnl(userData.lifetimePnl ?? null);
-
+        
         // Fetch trades separately for own profile using the function to ensure consistency
         // (or rely on Firestore listener if you prefer real-time updates for own profile)
         // For simplicity here, let's call the function again for own profile too
@@ -429,17 +429,17 @@ export default function ProfilePage() {
 
           const eventPromises = tradeDocs.docs.map(async (tradeDoc) => {
             const tradeData = { id: tradeDoc.id, ...tradeDoc.data() } as Trade;
-            try {
-              const eventDoc = await getDoc(doc(db, 'events', tradeData.eventId));
-              if (eventDoc.exists()) {
+    try {
+      const eventDoc = await getDoc(doc(db, 'events', tradeData.eventId));
+      if (eventDoc.exists()) {
                 const eventData = eventDoc.data() as Event;
-                eventData.id = eventDoc.id;
+        eventData.id = eventDoc.id;
                 // Add datetime property
-                if (eventData.date && !eventData.datetime) {
-                  eventData.datetime = eventData.time
-                    ? `${eventData.date}T${eventData.time}`
-                    : `${eventData.date}T00:00:00`;
-                }
+        if (eventData.date && !eventData.datetime) {
+          eventData.datetime = eventData.time
+            ? `${eventData.date}T${eventData.time}`
+            : `${eventData.date}T00:00:00`;
+        }
                 tradeData.event = eventData;
               }
             } catch (eventError) {
@@ -465,7 +465,7 @@ export default function ProfilePage() {
       } catch (error) {
         console.error('Error fetching own user data:', error);
       } finally {
-        setLoading(false); 
+        setLoading(false);
       }
     }
 
@@ -938,7 +938,7 @@ export default function ProfilePage() {
       </div>
     );
   };
-
+  
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
       <div className="mb-6">
@@ -967,63 +967,63 @@ export default function ProfilePage() {
             </div>
             
             {isOwnProfile && (
-              <div className="mt-4 flex gap-4">
-                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-                  <p className="text-sm font-medium">Trade Record</p>
-                  <p className="mt-1">
-                    <span className="text-green-600 dark:text-green-400 font-bold text-lg">
+            <div className="mt-4 flex gap-4">
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                <p className="text-sm font-medium">Trade Record</p>
+                <p className="mt-1">
+                  <span className="text-green-600 dark:text-green-400 font-bold text-lg">
                       {trades.filter(t => t.status === 'won').length}W
-                    </span>
-                    <span className="mx-2 text-gray-400">-</span>
-                    <span className="text-red-600 dark:text-red-400 font-bold text-lg">
+                  </span>
+                  <span className="mx-2 text-gray-400">-</span>
+                  <span className="text-red-600 dark:text-red-400 font-bold text-lg">
                       {trades.filter(t => t.status === 'lost').length}L
-                    </span>
-                  </p>
-                </div>
-
-                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-                  <p className="text-sm font-medium">Lifetime P&L</p>
-                  <p className="mt-1">
-                    {(() => {
-                      const pnl = lifetimePnl !== null ? lifetimePnl :
-                        trades.reduce((total, trade) => {
-                          if (trade.status === 'won') {
-                            return total + (trade.expectedPayout - trade.amount);
-                          } else if (trade.status === 'lost') {
-                            return total - trade.amount;
-                          }
-                          return total;
-                        }, 0);
-                      
-                      return (
-                        <span className={`font-bold text-lg ${
-                          pnl > 0 ? 'text-green-600 dark:text-green-400'
-                          : pnl === 0 ? 'text-blue-600 dark:text-blue-400'
-                          : 'text-red-600 dark:text-red-400'
-                        }`}>
-                          {formatCurrency(pnl)}
-                        </span>
-                      );
-                    })()}
-                  </p>
-                </div>
+                  </span>
+                </p>
               </div>
+
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                <p className="text-sm font-medium">Lifetime P&L</p>
+                <p className="mt-1">
+                  {(() => {
+                    const pnl = lifetimePnl !== null ? lifetimePnl :
+                      trades.reduce((total, trade) => {
+                          if (trade.status === 'won') {
+                          return total + (trade.expectedPayout - trade.amount);
+                          } else if (trade.status === 'lost') {
+                          return total - trade.amount;
+                        }
+                        return total;
+                      }, 0);
+                    
+                    return (
+                      <span className={`font-bold text-lg ${
+                        pnl > 0 ? 'text-green-600 dark:text-green-400'
+                        : pnl === 0 ? 'text-blue-600 dark:text-blue-400'
+                        : 'text-red-600 dark:text-red-400'
+                      }`}>
+                        {formatCurrency(pnl)}
+                      </span>
+                    );
+                  })()}
+                </p>
+              </div>
+            </div>
             )}
           </div>
 
           {isOwnProfile && (
-            <div className="bg-gradient-to-r from-green-500 to-emerald-600 dark:from-green-600 dark:to-emerald-700 py-4 px-6 rounded-xl shadow-lg min-w-[240px]">
-              <p className="text-sm text-green-50 dark:text-green-100">Available Balance</p>
-              <p className="text-3xl font-bold text-white mt-1">
-                {formatCurrency(walletBalance)}
-              </p>
-              <button
-                onClick={() => setIsAddFundsModalOpen(true)}
-                className="mt-3 w-full px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm transition-colors"
-              >
-                Add Funds
-              </button>
-            </div>
+          <div className="bg-gradient-to-r from-green-500 to-emerald-600 dark:from-green-600 dark:to-emerald-700 py-4 px-6 rounded-xl shadow-lg min-w-[240px]">
+            <p className="text-sm text-green-50 dark:text-green-100">Available Balance</p>
+            <p className="text-3xl font-bold text-white mt-1">
+              {formatCurrency(walletBalance)}
+            </p>
+            <button
+              onClick={() => setIsAddFundsModalOpen(true)}
+              className="mt-3 w-full px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm transition-colors"
+            >
+              Add Funds
+            </button>
+          </div>
           )}
         </div>
       </div>
@@ -1042,16 +1042,16 @@ export default function ProfilePage() {
             Posts
           </button>
           {(trades.length > 0 || loading) && (
-            <button
-              onClick={() => setActiveTab('trades')}
-              className={`py-3 px-5 text-base font-medium border-b-2 transition-colors ${
-                activeTab === 'trades'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              Trade History
-            </button>
+          <button
+            onClick={() => setActiveTab('trades')}
+            className={`py-3 px-5 text-base font-medium border-b-2 transition-colors ${
+              activeTab === 'trades'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+            }`}
+          >
+            Trade History
+          </button>
           )}
         </div>
       </div>
@@ -1061,108 +1061,108 @@ export default function ProfilePage() {
         <div className="space-y-6">
           {/* Post creation form - only show for own profile */}
           {isOwnProfile && (
-            <div className="mb-6 bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-              <form onSubmit={handleSubmitPost}>
-                <div className="mb-3">
-                  <textarea
-                    value={newPostContent}
-                    onChange={(e) => setNewPostContent(e.target.value)}
-                    placeholder="Share your thoughts on upcoming games..."
-                    className="w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    rows={3}
-                  ></textarea>
-                </div>
-                
-                {/* Media Preview */}
-                {mediaPreview && (
-                  <div className="relative mb-3 border rounded-lg overflow-hidden">
-                    {mediaType === 'image' ? (
-                      <img 
-                        src={mediaPreview} 
-                        alt="Post image" 
-                        className="w-full max-h-80 object-contain"
-                      />
-                    ) : mediaType === 'video' ? (
-                      <video 
-                        src={mediaPreview} 
-                        controls 
-                        className="w-full max-h-80"
-                      />
-                    ) : null}
-                    
-                    {/* Upload progress indicator */}
-                    {isSubmittingPost && uploadProgress > 0 && uploadProgress < 100 && (
-                      <div className="absolute bottom-0 left-0 right-0 bg-gray-200 h-1">
-                        <div 
-                          className="bg-blue-500 h-1" 
-                          style={{ width: `${uploadProgress}%` }}
-                        ></div>
-                      </div>
-                    )}
-                    
-                    {/* Remove button */}
-                    <button
-                      type="button"
-                      onClick={handleRemoveMedia}
-                      className="absolute top-2 right-2 bg-gray-900/70 text-white rounded-full p-1 hover:bg-gray-900"
-                      aria-label="Remove media"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                      </svg>
-                    </button>
-                  </div>
-                )}
-                
-                <div className="flex justify-between items-center">
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={toggleEventSelector}
-                      className={`flex items-center px-3 py-1.5 text-sm rounded-lg border ${
-                        showEventSelector || selectedEventIds.length > 0
-                          ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
-                          : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600'
-                      }`}
-                    >
-                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      {selectedEventIds.length > 0 
-                        ? `${selectedEventIds.length} Event${selectedEventIds.length > 1 ? 's' : ''} Tagged` 
-                        : 'Tag Events'}
-                    </button>
-                    
-                    {/* Media upload button */}
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex items-center px-3 py-1.5 text-sm rounded-lg border bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600"
-                    >
-                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      {mediaFile ? 'Change Media' : 'Add Media'}
-                    </button>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleFileSelect}
-                      accept="image/*,video/*"
-                      className="hidden"
+          <div className="mb-6 bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+            <form onSubmit={handleSubmitPost}>
+              <div className="mb-3">
+                <textarea
+                  value={newPostContent}
+                  onChange={(e) => setNewPostContent(e.target.value)}
+                  placeholder="Share your thoughts on upcoming games..."
+                  className="w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows={3}
+                ></textarea>
+              </div>
+              
+              {/* Media Preview */}
+              {mediaPreview && (
+                <div className="relative mb-3 border rounded-lg overflow-hidden">
+                  {mediaType === 'image' ? (
+                    <img 
+                      src={mediaPreview} 
+                      alt="Post image" 
+                      className="w-full max-h-80 object-contain"
                     />
-                  </div>
+                  ) : mediaType === 'video' ? (
+                    <video 
+                      src={mediaPreview} 
+                      controls 
+                      className="w-full max-h-80"
+                    />
+                  ) : null}
                   
+                  {/* Upload progress indicator */}
+                  {isSubmittingPost && uploadProgress > 0 && uploadProgress < 100 && (
+                    <div className="absolute bottom-0 left-0 right-0 bg-gray-200 h-1">
+                      <div 
+                        className="bg-blue-500 h-1" 
+                        style={{ width: `${uploadProgress}%` }}
+                      ></div>
+                    </div>
+                  )}
+                  
+                  {/* Remove button */}
                   <button
-                    type="submit"
-                    disabled={!newPostContent.trim() || isSubmittingPost}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    type="button"
+                    onClick={handleRemoveMedia}
+                    className="absolute top-2 right-2 bg-gray-900/70 text-white rounded-full p-1 hover:bg-gray-900"
+                    aria-label="Remove media"
                   >
-                    {isSubmittingPost ? 'Posting...' : 'Post'}
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
                   </button>
                 </div>
-              </form>
-            </div>
+              )}
+              
+              <div className="flex justify-between items-center">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={toggleEventSelector}
+                    className={`flex items-center px-3 py-1.5 text-sm rounded-lg border ${
+                      showEventSelector || selectedEventIds.length > 0
+                        ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
+                        : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    {selectedEventIds.length > 0 
+                      ? `${selectedEventIds.length} Event${selectedEventIds.length > 1 ? 's' : ''} Tagged` 
+                      : 'Tag Events'}
+                  </button>
+                  
+                  {/* Media upload button */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center px-3 py-1.5 text-sm rounded-lg border bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600"
+                  >
+                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {mediaFile ? 'Change Media' : 'Add Media'}
+                  </button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileSelect}
+                    accept="image/*,video/*"
+                    className="hidden"
+                  />
+                </div>
+                
+                <button
+                  type="submit"
+                  disabled={!newPostContent.trim() || isSubmittingPost}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmittingPost ? 'Posting...' : 'Post'}
+                </button>
+              </div>
+            </form>
+          </div>
           )}
 
           {/* Event selector */}
