@@ -59,8 +59,10 @@ export default function TrendingPage() {
 
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
-      <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Trending Events </h3>
       <div className="mb-10 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="p-4">
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Trending Events 🔥</h3>
+        </div>
         {loadingTopEvents ? (
           <div className="p-4">
             <div className="animate-pulse flex space-x-4 overflow-x-auto pb-4">
