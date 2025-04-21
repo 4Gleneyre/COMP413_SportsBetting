@@ -747,7 +747,7 @@ export default function ProfilePage() {
       setTrades(prevTrades => 
         prevTrades.map(trade => 
           trade.id === selectedTradeForSale.id 
-            ? { ...trade, status: 'sold' } 
+            ? { ...trade, status: 'sold', soldValue: soldValue } 
             : trade
         )
       );
@@ -1247,7 +1247,7 @@ export default function ProfilePage() {
               </div>
             </div>
             
-            {isOwnProfile && (
+            {(!isPrivateProfile || isOwnProfile) && (
             <div className="mt-4 flex gap-4">
               <div className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
                 <p className="text-sm font-medium">Trade Record</p>
