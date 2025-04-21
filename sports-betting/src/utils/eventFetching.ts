@@ -39,11 +39,7 @@ export const fetchEvents = async (options: EventFetchOptions = {}) => {
 
   try {
     const eventsRef = collection(db, 'events');
-    let constraints: any[] = [
-      orderBy('date', 'asc'),
-      orderBy('__name__', 'asc'),
-      limit(pageSize)
-    ];
+    let constraints: any[] = [];
     
     // Add date filter if a date range is selected
     if (filterDates[0]) {
@@ -62,24 +58,24 @@ export const fetchEvents = async (options: EventFetchOptions = {}) => {
     // Add sport filter if selected
     if (sportFilter) {
       console.log(`[fetchEvents] Applying sport filter: ${sportFilter}`);
-  if (sportFilter === 'soccer') {
-    // only soccer
-    constraints.push(where('sport', '==', 'soccer'));
-  }
+      if (sportFilter === 'soccer') {
+        // only soccer
+        constraints.push(where('sport', '==', 'soccer'));
+      }
     }
 
+    // Add orderBy clauses - IMPORTANT: These must come after all where() clauses
+    // but before pagination clauses
+    constraints.push(orderBy('date', 'asc'));
+    constraints.push(orderBy('__name__', 'asc'));
+
     const batchSize = searchQuery.trim() !== '' ? 500 : pageSize;
-    
-    constraints.push(
-      orderBy('date', 'asc'),
-      orderBy('__name__', 'asc'),
-      limit(batchSize)
-    );
+    constraints.push(limit(batchSize));
     
     // Add pagination if there's a last document and no search query
     // (search resets pagination)
     if (lastDoc && searchQuery.trim() === '') {
-      constraints.push(startAfter(lastDoc.data().date, lastDoc.id));
+      constraints.push(startAfter(lastDoc));
     }
 
     // Create and execute query
