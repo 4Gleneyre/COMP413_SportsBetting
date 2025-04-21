@@ -28,14 +28,17 @@ export interface EventFetchOptions {
 export const fetchEvents = async (options: EventFetchOptions = {}) => {
   const {
     filterDates = [null, null],
-    searchQuery = '',
     pageSize = 10,
     lastDoc = null
   } = options;
 
   try {
     const eventsRef = collection(db, 'events');
-    let constraints: any[] = [];
+    let constraints: any[] = [
+      orderBy('date', 'asc'),
+      orderBy('__name__', 'asc'),
+      limit(pageSize)
+    ];
     
     // Add date filter if a date range is selected
     if (filterDates[0]) {
@@ -51,18 +54,8 @@ export const fetchEvents = async (options: EventFetchOptions = {}) => {
       constraints.push(where('date', '>=', today));
     }
 
-    // If search query is provided, fetch a larger batch to search within
-    const batchSize = searchQuery.trim() !== '' ? 500 : pageSize;
-    
-    constraints.push(
-      orderBy('date', 'asc'),
-      orderBy('__name__', 'asc'),
-      limit(batchSize)
-    );
-    
-    // Add pagination if there's a last document and no search query
-    // (search resets pagination)
-    if (lastDoc && searchQuery.trim() === '') {
+    // Add pagination if there's a last document
+    if (lastDoc) {
       constraints.push(startAfter(lastDoc.data().date, lastDoc.id));
     }
 
@@ -72,7 +65,7 @@ export const fetchEvents = async (options: EventFetchOptions = {}) => {
     
     // Process results
     if (!querySnapshot.empty) {
-      let newEvents: Event[] = querySnapshot.docs.map((docSnap) => {
+      const newEvents: Event[] = querySnapshot.docs.map((docSnap) => {
         const data = docSnap.data() as Event;
         return {
           ...data,
@@ -80,36 +73,11 @@ export const fetchEvents = async (options: EventFetchOptions = {}) => {
         };
       });
 
-      // Store the last document for pagination (before filtering)
-      const lastDocument = querySnapshot.docs[querySnapshot.docs.length - 1];
-      
-      // Apply search filter if provided
-      if (searchQuery.trim() !== '') {
-        console.log(`Filtering ${newEvents.length} events by search query: "${searchQuery}"`);
-        const searchLower = searchQuery.toLowerCase();
-        newEvents = newEvents.filter(event => {
-          const homeTeamName = (event.home_team?.full_name || event.home_team?.name || '').toLowerCase();
-          const visitorTeamName = (event.visitor_team?.full_name || event.visitor_team?.name || '').toLowerCase();
-          const homeTeamAbbr = (event.home_team?.abbreviation || '').toLowerCase();
-          const visitorTeamAbbr = (event.visitor_team?.abbreviation || '').toLowerCase();
-          
-          return homeTeamName.includes(searchLower) || 
-                 visitorTeamName.includes(searchLower) ||
-                 homeTeamAbbr.includes(searchLower) ||
-                 visitorTeamAbbr.includes(searchLower);
-        });
-        
-        // Limit to pageSize after filtering
-        newEvents = newEvents.slice(0, pageSize);
-      }
-
-      // Return events and pagination info
+      // Return both events and the last document for pagination
       return {
         events: newEvents,
-        lastDoc: searchQuery.trim() !== '' ? null : lastDocument, // Don't use lastDoc with search
-        hasMore: searchQuery.trim() !== '' 
-          ? newEvents.length === pageSize  // For search, we estimate hasMore
-          : querySnapshot.docs.length === batchSize // For regular queries, use batch size
+        lastDoc: querySnapshot.docs[querySnapshot.docs.length - 1],
+        hasMore: querySnapshot.docs.length === pageSize
       };
     } else {
       return {
