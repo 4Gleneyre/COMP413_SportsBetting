@@ -207,6 +207,7 @@ export default function Events() {
       // Convert filterDates to the format expected by fetchEvents
       const result = await fetchEvents({
         filterDates: filterDates,
+        searchQuery: searchQuery,
         pageSize: 10,
         lastDoc: lastDocRef.current
       });
