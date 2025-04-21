@@ -2,12 +2,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import LeaderboardPage from './page';
 
-// Mock next/nav
-jest.mock('next/navigation', () => ({
-  useRouter: () => ({
-    push: jest.fn(),
-  }),
-}))
 // Mock firebase/functions
 jest.mock('firebase/functions', () => ({
   httpsCallable: jest.fn(),
@@ -19,15 +13,20 @@ jest.mock('@/lib/firebase', () => ({
   functions: {},
 }));
 
+// Mock IntersectionObserver
+const mockIntersectionObserver = jest.fn();
+let intersectionObserverCallback: any = null;
 
-class MockIntersectionObserver {
-  constructor(private cb: IntersectionObserverCallback) {}
-  observe(_: Element) {}
-  unobserve(_: Element) {}
-  disconnect() {}
-}
-// @ts-ignore
-window.IntersectionObserver = MockIntersectionObserver;
+mockIntersectionObserver.mockImplementation((callback) => {
+  intersectionObserverCallback = callback;
+  return {
+    observe: jest.fn(),
+    unobserve: jest.fn(),
+    disconnect: jest.fn()
+  };
+});
+
+window.IntersectionObserver = mockIntersectionObserver;
 
 describe('LeaderboardPage', () => {
   const mockUsers = [
@@ -48,13 +47,17 @@ describe('LeaderboardPage', () => {
   ];
 
   beforeEach(() => {
-    jest.resetAllMocks();
-
+    jest.clearAllMocks();
+    intersectionObserverCallback = null;
+  
     const mockCallableFn = jest.fn().mockResolvedValue({
-      data: { users: mockUsers, hasMore: true }
+      data: {
+        users: mockUsers,
+        hasMore: true
+      }
     });
-    (require("firebase/functions").httpsCallable as jest.Mock)
-      .mockReturnValue(mockCallableFn);
+  
+    (require('firebase/functions').httpsCallable as jest.Mock).mockReturnValue(mockCallableFn);
   });
 
   it('renders loading state initially', async () => {

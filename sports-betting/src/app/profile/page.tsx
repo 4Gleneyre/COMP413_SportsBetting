@@ -15,7 +15,6 @@ import { httpsCallable } from 'firebase/functions';
 import PostItem from '@/components/PostItem';
 import EventSelector from '@/components/EventSelector';
 import { usePathname, useSearchParams } from 'next/navigation';
-const isTest = process.env.NODE_ENV === 'test';
 
 interface Trade {
   id: string;
@@ -230,7 +229,6 @@ function parseLocalDate(dateString: string) {
 }
 
 export default function ProfilePage() {
-  const [ownTradeIds, setOwnTradeIds] = useState<string[] | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -238,11 +236,7 @@ export default function ProfilePage() {
   const [walletBalance, setWalletBalance] = useState(0);
   const [lifetimePnl, setLifetimePnl] = useState<number | null>(null);
   const { user, username } = useAuth();
-  const rawSearchParams = useSearchParams();
-  const searchParams = rawSearchParams
-    ?? new URLSearchParams(
-         typeof window !== 'undefined' ? window.location.search : ''
-       );
+  const searchParams = useSearchParams();
   const pathname = usePathname();
   const [isAddFundsModalOpen, setIsAddFundsModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
@@ -389,85 +383,105 @@ export default function ProfilePage() {
 
   useEffect(() => {
     async function fetchUserData() {
+      // Only fetch wallet/pnl/trades if it's the user's own profile and user is logged in
       if (!user || !isOwnProfile) {
-        if (!isTest) console.log('Not own profile or user not logged in, skipping detailed user data fetch');
-        if (!profileUserId) setLoading(false);
+        console.log('Not own profile or user not logged in, skipping detailed user data fetch');
+        if (!profileUserId) setLoading(false); // Ensure loading stops if no profileId was ever set
         return;
       }
+      
       const targetUserId = user.uid;
 
       try {
-        if (!isTest) console.log('Fetching own user data for:', targetUserId);
-        setLoading(true);
-
-        // 1) load walletBalance, lifetimePnl, and raw trade‑IDs
+        console.log('Fetching own user data for:', targetUserId);
+        setLoading(true); // Start loading for own profile data
+        
+        // Get user document for wallet balance and PnL
         const userDoc = await getDoc(doc(db, 'users', targetUserId));
         if (!userDoc.exists()) {
-          if (!isTest) console.log('Own user document not found');
+          console.log('Own user document not found in Firestore');
           setLoading(false);
           return;
         }
+
         const userData = userDoc.data() as UserData;
+        
+        // Set wallet balance and pnl only for own profile
         setWalletBalance(userData.walletBalance || 0);
         setLifetimePnl(userData.lifetimePnl ?? null);
+        // Set privacy setting from the 'private' field
         setIsPrivateProfile(userData.private ?? false);
 
-        // stash raw trade‑IDs for tab logic
-        setOwnTradeIds(userData.trades || []);
-
-        // 2) try Cloud‑Fn fetch (skipped under test or missing functions)
-        let fetchedTrades: Trade[] = [];
-        if (!isTest && functions && Object.keys(functions).length) {
-          try {
-            const getUserProfileInfo = httpsCallable(functions, 'getUserProfileInfo');
-            const result = await getUserProfileInfo({ userId: targetUserId });
-            fetchedTrades = (result.data as UserProfileInfoResponse).trades || [];
-          } catch (err) {
-            if (!isTest) console.error('Cloud‑fn trades fetch failed:', err);
-          }
+        // Fetch trades separately for own profile using the function to ensure consistency
+        // (or rely on Firestore listener if you prefer real-time updates for own profile)
+        // For simplicity here, let's call the function again for own profile too
+        // Alternatively, could set up a listener only for own profile trades
+        try {
+          const getUserProfileInfo = httpsCallable(functions, 'getUserProfileInfo');
+          const result = await getUserProfileInfo({ userId: targetUserId });
+          const profileData = result.data as UserProfileInfoResponse;
+          setTrades(profileData.trades || []);
+        } catch (tradeError) {
+          console.error('Error fetching trades for own profile:', tradeError);
+          setTrades([]); // Clear trades on error
         }
+        
+        /* 
+        // --- OLD TRADE FETCHING LOGIC (REMOVED) --- 
+        const userTrades = userData.trades || [];
+        console.log('Found trade IDs:', userTrades);
+        
+        // Fetch all trades
+        const tradesData: Trade[] = [];
+        if (userTrades.length > 0) {
+          const tradesQuery = query(collection(db, 'trades'), where(documentId(), 'in', userTrades));
+          const tradeDocs = await getDocs(tradesQuery);
 
-        // 3) fallback to Firestore‑based fetch (or always if in test)
-        if (fetchedTrades.length === 0 && userData.trades?.length) {
-          const q = query(
-            collection(db, 'trades'),
-            where('__name__', 'in', userData.trades)
-          );
-          const snap = await getDocs(q);
-          const arr: Trade[] = [];
-          for (const d of snap.docs) {
-            if (!d.exists()) continue;
-            const t = { id: d.id, ...d.data() } as Trade;
-            // attach event data
-            try {
-              const ev = await getDoc(doc(db, 'events', t.eventId));
-              if (ev.exists()) {
-                const e = ev.data() as Event;
-                e.id = ev.id;
-                t.event = e;
+          const eventPromises = tradeDocs.docs.map(async (tradeDoc) => {
+            const tradeData = { id: tradeDoc.id, ...tradeDoc.data() } as Trade;
+    try {
+      const eventDoc = await getDoc(doc(db, 'events', tradeData.eventId));
+      if (eventDoc.exists()) {
+                const eventData = eventDoc.data() as Event;
+        eventData.id = eventDoc.id;
+                // Add datetime property
+        if (eventData.date && !eventData.datetime) {
+          eventData.datetime = eventData.time
+            ? `${eventData.date}T${eventData.time}`
+            : `${eventData.date}T00:00:00`;
+        }
+                tradeData.event = eventData;
               }
-            } catch {}
-            arr.push(t);
-          }
-          // newest first
-          arr.sort((a,b) => {
-            const aMs = a.createdAt?.toDate?.().getTime() ?? 0;
-            const bMs = b.createdAt?.toDate?.().getTime() ?? 0;
-            return bMs - aMs;
+            } catch (eventError) {
+              console.error('Error fetching event for trade:', tradeData.id, eventError);
+            }
+            return tradeData;
           });
-          fetchedTrades = arr;
+
+          const resolvedTrades = await Promise.all(eventPromises);
+          // Sort trades by createdAt timestamp, newest first
+          resolvedTrades.sort((a, b) => {
+            const timeA = a.createdAt?.toMillis() || 0;
+            const timeB = b.createdAt?.toMillis() || 0;
+            return timeB - timeA;
+          });
+          tradesData.push(...resolvedTrades);
         }
 
-        setTrades(fetchedTrades);
+        setTrades(tradesData);
+        // --- END OF OLD TRADE FETCHING LOGIC --- 
+        */
+
       } catch (error) {
-        if (!isTest) console.error('Error fetching own user data:', error);
+        console.error('Error fetching own user data:', error);
       } finally {
         setLoading(false);
       }
     }
 
     fetchUserData();
-  }, [user, isOwnProfile, functions]);
+  // Depend on user and isOwnProfile. isOwnProfile changes when profileUserId or user changes.
+  }, [user, isOwnProfile, functions]); 
 
   // Fetch user posts
   useEffect(() => {
@@ -1135,22 +1149,21 @@ export default function ProfilePage() {
           >
             Posts
           </button>
-
-          {/* show the Trade History tab if they have any raw trade‑IDs, or if we’re still loading */}
-          {(ownTradeIds?.length! > 0 || trades.length > 0 || loading) && (
-            <button
-              onClick={() => setActiveTab('trades')}
-              className={`py-3 px-5 text-base font-medium border-b-2 transition-colors ${
-                activeTab === 'trades'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              Trade History
-            </button>
+          {(trades.length > 0 || loading) && (
+          <button
+            onClick={() => setActiveTab('trades')}
+            className={`py-3 px-5 text-base font-medium border-b-2 transition-colors ${
+              activeTab === 'trades'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+            }`}
+          >
+            Trade History
+          </button>
           )}
         </div>
       </div>
+
       {/* Posts Tab */}
       {activeTab === 'posts' && (
         <div className="space-y-6">

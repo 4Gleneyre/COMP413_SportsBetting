@@ -83,9 +83,6 @@ export default function ActivityPage() {
           lastCreatedAtRef.current = lastTrade.createdAt._seconds * 1000;
         } else {
           console.warn('Invalid timestamp found in last trade:', lastTrade);
-          if (process.env.NODE_ENV !== 'test') {
-                        console.warn('Invalid timestamp found in last trade:', lastTrade);
-                      }
           // Fallback to current time if the timestamp is invalid
           lastCreatedAtRef.current = Date.now();
         }
@@ -156,12 +153,10 @@ export default function ActivityPage() {
               hasValidTimestamp,
               timestamp,
               formattedDate: formattedDate ? formattedDate.toString() : 'Invalid date'
-            }
-          );
+            });
             
             return (
               <div
-                data-testid="trade-card"
                 key={trade.id}
                 ref={index === trades.length - 1 ? lastTradeElementRef : null}
                 className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm border ${
