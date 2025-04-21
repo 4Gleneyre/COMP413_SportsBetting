@@ -14,6 +14,7 @@ import { functions } from '@/lib/firebase';
 import { httpsCallable } from 'firebase/functions';
 import PostItem from '@/components/PostItem';
 import EventSelector from '@/components/EventSelector';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 interface Trade {
   id: string;
@@ -235,6 +236,8 @@ export default function ProfilePage() {
   const [walletBalance, setWalletBalance] = useState(0);
   const [lifetimePnl, setLifetimePnl] = useState<number | null>(null);
   const { user, username } = useAuth();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
   const [isAddFundsModalOpen, setIsAddFundsModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' | 'draw' } | null>(null);
@@ -288,10 +291,9 @@ export default function ProfilePage() {
   // Handle event ID from URL and custom events
   useEffect(() => {
     // Check URL for event parameter and user parameters on page load
-    const urlParams = new URLSearchParams(window.location.search);
-    const eventId = urlParams.get('event');
-    const urlUserId = urlParams.get('userId');
-    const urlUsername = urlParams.get('username');
+    const eventId = searchParams.get('event');
+    const urlUserId = searchParams.get('userId');
+    const urlUsername = searchParams.get('username');
     
     // Set profile user data from URL parameters
     if (urlUserId) {
@@ -328,7 +330,7 @@ export default function ProfilePage() {
     return () => {
       window.removeEventListener('eventSelected', handleEventSelected as EventListener);
     };
-  }, []);
+  }, [searchParams]);
 
   // Determine if this is the logged-in user's profile
   useEffect(() => {
