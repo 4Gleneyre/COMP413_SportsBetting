@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { collection, getDocs, query, where, doc, getDoc, Timestamp, updateDoc, addDoc, setDoc, serverTimestamp, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc, Timestamp, updateDoc, orderBy, limit } from 'firebase/firestore';
 import { db, storage } from '@/lib/firebase';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Event } from '@/types/events';
 import type { Post } from '@/types/post';
@@ -14,6 +14,7 @@ import { functions } from '@/lib/firebase';
 import { httpsCallable } from 'firebase/functions';
 import PostItem from '@/components/PostItem';
 import EventSelector from '@/components/EventSelector';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 interface Trade {
   id: string;
@@ -31,6 +32,21 @@ interface UserData {
   trades: string[];
   walletBalance: number;
   lifetimePnl?: number;
+  private?: boolean;
+}
+
+interface ProfileUserData {
+  photoURL?: string;
+  username?: string;
+  // Add trades property if needed, although trades state is handled separately
+}
+
+// Define the structure for the data returned by the Cloud Function
+interface UserProfileInfoResponse {
+  photoURL: string | null;
+  username: string | null;
+  trades: Trade[]; // Use the existing Trade interface
+  private: boolean;
 }
 
 function formatCurrency(amount: number) {
@@ -212,19 +228,6 @@ function parseLocalDate(dateString: string) {
   return date;
 }
 
-interface ProfileUserData {
-  photoURL?: string;
-  username?: string;
-  // Add trades property if needed, although trades state is handled separately
-}
-
-// Define the structure for the data returned by the Cloud Function
-interface UserProfileInfoResponse {
-  photoURL: string | null;
-  username: string | null;
-  trades: Trade[]; // Use the existing Trade interface
-}
-
 export default function ProfilePage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -233,6 +236,8 @@ export default function ProfilePage() {
   const [walletBalance, setWalletBalance] = useState(0);
   const [lifetimePnl, setLifetimePnl] = useState<number | null>(null);
   const { user, username } = useAuth();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
   const [isAddFundsModalOpen, setIsAddFundsModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' | 'draw' } | null>(null);
@@ -253,6 +258,9 @@ export default function ProfilePage() {
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
   const [isOwnProfile, setIsOwnProfile] = useState(true);
   const [profileUserData, setProfileUserData] = useState<ProfileUserData | null>(null);
+  // New state for profile privacy
+  const [isPrivateProfile, setIsPrivateProfile] = useState(false);
+  const [updatingPrivacy, setUpdatingPrivacy] = useState(false);
 
   /**
    * Fetch event by ID from Firestore
@@ -283,10 +291,9 @@ export default function ProfilePage() {
   // Handle event ID from URL and custom events
   useEffect(() => {
     // Check URL for event parameter and user parameters on page load
-    const urlParams = new URLSearchParams(window.location.search);
-    const eventId = urlParams.get('event');
-    const urlUserId = urlParams.get('userId');
-    const urlUsername = urlParams.get('username');
+    const eventId = searchParams.get('event');
+    const urlUserId = searchParams.get('userId');
+    const urlUsername = searchParams.get('username');
     
     // Set profile user data from URL parameters
     if (urlUserId) {
@@ -323,7 +330,7 @@ export default function ProfilePage() {
     return () => {
       window.removeEventListener('eventSelected', handleEventSelected as EventListener);
     };
-  }, []);
+  }, [searchParams]);
 
   // Determine if this is the logged-in user's profile
   useEffect(() => {
@@ -364,6 +371,7 @@ export default function ProfilePage() {
         // Set the trades state with the data from the Cloud Function
         setTrades(profileData.trades || []); 
         setIsOwnProfile(false); // We fetched data, so it's not the own profile
+        setIsPrivateProfile(profileData.private ?? false);
 
       } catch (error) {
         console.error('Error fetching profile user data:', error);
@@ -401,7 +409,9 @@ export default function ProfilePage() {
         // Set wallet balance and pnl only for own profile
         setWalletBalance(userData.walletBalance || 0);
         setLifetimePnl(userData.lifetimePnl ?? null);
-        
+        // Set privacy setting from the 'private' field
+        setIsPrivateProfile(userData.private ?? false);
+
         // Fetch trades separately for own profile using the function to ensure consistency
         // (or rely on Firestore listener if you prefer real-time updates for own profile)
         // For simplicity here, let's call the function again for own profile too
@@ -746,6 +756,31 @@ export default function ProfilePage() {
     }
   };
 
+  // Function to toggle profile privacy
+  const toggleProfilePrivacy = async () => {
+    if (!user || !isOwnProfile) return;
+    
+    try {
+      setUpdatingPrivacy(true);
+      const newPrivacySetting = !isPrivateProfile;
+      
+      // Update in Firestore using the 'private' field
+      await updateDoc(doc(db, 'users', user.uid), {
+        private: newPrivacySetting
+      });
+      
+      // Update local state
+      setIsPrivateProfile(newPrivacySetting);
+      
+      // Show feedback (could add a toast notification here)
+      console.log(`Profile privacy updated to: ${newPrivacySetting ? 'Private' : 'Public'}`);
+    } catch (error) {
+      console.error('Error updating profile privacy:', error);
+    } finally {
+      setUpdatingPrivacy(false);
+    }
+  };
+
   // Add debug logs in the render logic
   if (!user && !profileUserId) {
     console.log('Rendering: No user view');
@@ -789,6 +824,16 @@ export default function ProfilePage() {
     : username || user?.email;
   
   const renderTradeHistory = () => {
+    if (!isOwnProfile && isPrivateProfile) {
+      return (
+        <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
+          <p className="text-gray-500 dark:text-gray-400">
+            This user&apos;s profile setting is set to private, so you can&apos;t view the user&apos;s trade history.
+          </p>
+        </div>
+      );
+    }
+    
     if (loading) {
       return <div className="text-center p-4">Loading trade history...</div>;
     }
@@ -959,9 +1004,72 @@ export default function ProfilePage() {
                   <>
                     <p className="text-lg font-semibold">{displayName}</p>
                     <p className="text-gray-500 dark:text-gray-400">@{displayUsername}</p>
+                    
+                    {/* Privacy toggle for own profile */}
+                    <div className="mt-2 flex items-center">
+                      <button
+                        onClick={toggleProfilePrivacy}
+                        disabled={updatingPrivacy}
+                        className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-full transition-colors"
+                        aria-label={isPrivateProfile ? "Make profile public" : "Make profile private"}
+                      >
+                        <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                          isPrivateProfile 
+                            ? 'bg-blue-600 dark:bg-blue-500' 
+                            : 'bg-gray-300 dark:bg-gray-600'
+                        }`}>
+                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            isPrivateProfile ? 'translate-x-4' : 'translate-x-1'
+                          }`} />
+                        </span>
+                        <span className="font-medium">
+                          {updatingPrivacy ? 'Updating...' : (isPrivateProfile ? 'Private Profile' : 'Public Profile')}
+                        </span>
+                        
+                        {/* Information tooltip */}
+                        <div className="relative inline-block ml-1.5 group">
+                          <svg 
+                            xmlns="http://www.w3.org/2000/svg" 
+                            className="h-4 w-4 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 cursor-help"
+                            fill="none" 
+                            viewBox="0 0 24 24" 
+                            stroke="currentColor"
+                          >
+                            <path 
+                              strokeLinecap="round" 
+                              strokeLinejoin="round" 
+                              strokeWidth={2} 
+                              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" 
+                            />
+                          </svg>
+                          <div className="absolute left-1/2 bottom-full -translate-x-1/2 mb-2 w-64 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-10">
+                            <div className="bg-gray-900 text-white text-xs rounded-lg py-2 px-3 shadow-lg">
+                              <p className="mb-1">
+                                <span className="font-semibold">Private Profile:</span> Your posts remain visible to the community, while your trading activity stays confidential.
+                              </p>
+                              <p>
+                                <span className="font-semibold">Public Profile:</span> Share your complete trading journey with the MeiYunDong community, showcasing both your posts and trading history.
+                              </p>
+                              <div className="absolute left-1/2 top-full -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-900"></div>
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    </div>
                   </>
                 ) : (
-                  <p className="text-lg font-semibold">@{displayUsername}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-lg font-semibold">@{displayUsername}</p>
+                    <span
+                      className={`px-2 py-0.5 text-sm rounded-full ${
+                        isPrivateProfile
+                          ? 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                          : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
+                      }`}
+                    >
+                      {isPrivateProfile ? 'Private' : 'Public'}
+                    </span>
+                  </div>
                 )}
               </div>
             </div>
@@ -972,11 +1080,11 @@ export default function ProfilePage() {
                 <p className="text-sm font-medium">Trade Record</p>
                 <p className="mt-1">
                   <span className="text-green-600 dark:text-green-400 font-bold text-lg">
-                      {trades.filter(t => t.status === 'won').length}W
+                      {trades.filter(t => t.status === 'Won').length}W
                   </span>
                   <span className="mx-2 text-gray-400">-</span>
                   <span className="text-red-600 dark:text-red-400 font-bold text-lg">
-                      {trades.filter(t => t.status === 'lost').length}L
+                      {trades.filter(t => t.status === 'Lost').length}L
                   </span>
                 </p>
               </div>

@@ -791,25 +791,23 @@ export const getUserProfileInfo = onCall(
       if (!userId) {
         throw new HttpsError("invalid-argument", "User ID is required");
       }
-      
-      // Get only the necessary fields from the user document
+
       const userDoc = await db.collection("users").doc(userId).get();
       
       if (!userDoc.exists) {
         throw new HttpsError("not-found", "User not found");
       }
-      
+
       const userData = userDoc.data();
-      
-      // Return only public profile information
+
       const photoURL = userData?.photoURL || null;
       const username = userData?.username || null;
+      const isPrivate = userData?.private ?? false; // Default to false if undefined
       const tradeIds: string[] = userData?.trades || [];
 
       let trades: any[] = [];
 
       if (tradeIds.length > 0) {
-        // Fetch all trade documents concurrently
         const tradeDocsPromises = tradeIds.map((tradeId) =>
           db.collection("trades").doc(tradeId).get()
         );
@@ -817,10 +815,9 @@ export const getUserProfileInfo = onCall(
 
         const validTradeDocs = tradeDocsSnapshots.filter((doc) => doc.exists);
 
-        // Fetch associated event documents concurrently
         const eventIds = validTradeDocs
           .map((doc) => doc.data()?.eventId)
-          .filter((id): id is string => !!id); // Filter out undefined/null IDs
+          .filter((id): id is string => !!id);
 
         let eventsMap = new Map<string, any>();
         if (eventIds.length > 0) {
@@ -836,32 +833,28 @@ export const getUserProfileInfo = onCall(
           });
         }
 
-        // Combine trade and event data
         trades = validTradeDocs.map((tradeDoc) => {
-          const tradeData = tradeDoc.data(); // Get data, could be undefined
+          const tradeData = tradeDoc.data();
           if (!tradeData) {
             console.warn(`Trade document ${tradeDoc.id} exists but data is undefined.`);
-            return null; // Return null for invalid data
+            return null;
           }
-          // Now tradeData is confirmed to exist
+
           const event = eventsMap.get(tradeData.eventId);
-          
-          // Convert Firestore timestamp to serializable format
           const createdAtTimestamp = tradeData.createdAt;
           const serializedCreatedAt = createdAtTimestamp ? {
             seconds: createdAtTimestamp.seconds,
             nanoseconds: createdAtTimestamp.nanoseconds
           } : null;
-          
+
           return {
             ...tradeData,
             id: tradeDoc.id,
-            createdAt: serializedCreatedAt, // Replace with serialized timestamp
-            event: event, // Add the fetched event data
+            createdAt: serializedCreatedAt,
+            event: event,
           };
-        }).filter((trade): trade is any => trade !== null); // Filter out the nulls
+        }).filter((trade): trade is any => trade !== null);
 
-        // Sort trades by createdAt timestamp (if available), newest first
         trades.sort((a, b) => {
           const timeA = a.createdAt?.seconds || 0;
           const timeB = b.createdAt?.seconds || 0;
@@ -870,9 +863,10 @@ export const getUserProfileInfo = onCall(
       }
 
       const result = {
-        photoURL: photoURL,
-        username: username,
-        trades: trades,
+        photoURL,
+        username,
+        private: isPrivate,
+        trades,
       };
 
       return result;
