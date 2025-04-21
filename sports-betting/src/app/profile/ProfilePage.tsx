@@ -26,7 +26,6 @@ interface Trade {
   status: string;
   userId: string;
   event?: Event;
-  currentValue?: number | null;
 }
 
 interface UserData {
@@ -860,63 +859,6 @@ export default function ProfilePage() {
               key={trade.id}
               className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 hover:border-gray-300 dark:hover:border-gray-600 transition-all hover:shadow-md"
             >
-              {/* Add a header with status and sell button for pending trades */}
-              {trade.status?.toLowerCase() === 'pending' && (
-                <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100 dark:border-gray-700">
-                  <div className="flex items-center gap-2">
-                    <span className="px-3 py-1 rounded-full text-sm font-medium inline-flex items-center gap-1.5 bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      Pending
-                    </span>
-                  </div>
-                  <button
-                    className="py-2 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow"
-                    onClick={() => {
-                      console.log('Sell trade:', trade.id);
-                    }}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Sell Trade
-                  </button>
-                </div>
-              )}
-              
-              {/* Status badge for non-pending trades */}
-              {trade.status?.toLowerCase() !== 'pending' && (
-                <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-100 dark:border-gray-700">
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium inline-flex items-center gap-1.5 ${ 
-                    trade.status?.toLowerCase() === 'won'
-                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                      : trade.status?.toLowerCase() === 'lost'
-                      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                      : trade.status?.toLowerCase() === 'sold'
-                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                      : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300' // Default/Unknown
-                  }`}>
-                    {trade.status?.toLowerCase() === 'won' && (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    )}
-                    {trade.status?.toLowerCase() === 'lost' && (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    )}
-                    {trade.status?.toLowerCase() === 'sold' && (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    )}
-                    {trade.status ? trade.status.charAt(0).toUpperCase() + trade.status.slice(1) : 'Unknown'}
-                  </span>
-                </div>
-              )}
-
               <div className="flex flex-col md:flex-row md:items-center gap-6">
                 {/* Team and Event Info */}
                 <div className="flex-grow space-y-4">
@@ -958,6 +900,40 @@ export default function ProfilePage() {
                     </div>
                   </div>
 
+                  {/* Status Badge */}
+                  <div className="flex items-center gap-3">
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium inline-flex items-center gap-1.5 ${ 
+                      // Handle different statuses including 'sold'
+                      trade.status?.toLowerCase() === 'pending' 
+                        ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                        : trade.status?.toLowerCase() === 'won'
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        : trade.status?.toLowerCase() === 'lost'
+                        ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                        : trade.status?.toLowerCase() === 'sold'
+                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                        : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300' // Default/Unknown
+                    }`}>
+                      {trade.status?.toLowerCase() === 'pending' && (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      )}
+                      {trade.status?.toLowerCase() === 'won' && (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      )}
+                      {trade.status?.toLowerCase() === 'lost' && (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      )}
+                       {/* Consider adding an icon for 'sold' if desired */}
+                      {trade.status ? trade.status.charAt(0).toUpperCase() + trade.status.slice(1) : 'Unknown'}
+                    </span>
+                  </div>
+
                   {/* Dates */}
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
@@ -993,51 +969,27 @@ export default function ProfilePage() {
                     <p className="text-sm text-gray-500 dark:text-gray-400">Bet Amount</p>
                     <p className="text-lg font-semibold mt-1">{formatCurrency(trade.amount)}</p>
                   </div>
-                  
-                  {trade.currentValue !== undefined && trade.currentValue !== null && trade.status?.toLowerCase() === 'pending' && (
-                    <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Current Value</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <p className={`text-lg font-semibold ${
-                          trade.currentValue > trade.amount 
-                            ? 'text-green-600 dark:text-green-400' 
-                            : trade.currentValue < trade.amount 
-                              ? 'text-red-600 dark:text-red-400' 
-                              : 'text-gray-700 dark:text-gray-300'
-                        }`}>
-                          {formatCurrency(trade.currentValue)}
-                        </p>
-                        
-                        {trade.amount > 0 && (
-                          <div className={`flex items-center text-sm font-medium ${
-                            trade.currentValue > trade.amount 
-                              ? 'text-green-600 dark:text-green-400' 
-                              : trade.currentValue < trade.amount 
-                                ? 'text-red-600 dark:text-red-400' 
-                                : 'text-gray-500 dark:text-gray-400'
-                          }`}>
-                            {trade.currentValue > trade.amount ? (
-                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                              </svg>
-                            ) : trade.currentValue < trade.amount ? (
-                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                              </svg>
-                            ) : null}
-                            {((trade.currentValue / trade.amount - 1) * 100).toFixed(2)}%
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">Potential Payout</p>
                     <p className="text-lg font-semibold text-green-600 dark:text-green-400 mt-1">
                       {formatCurrency(trade.expectedPayout)}
                     </p>
                   </div>
+                  
+                  {/* Sell Button - Only show for pending trades */}
+                  {trade.status?.toLowerCase() === 'pending' && (
+                    <div className="mt-2">
+                      <button
+                        className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm"
+                        onClick={() => {
+                          // Placeholder for sell functionality
+                          console.log('Sell trade:', trade.id);
+                        }}
+                      >
+                        Sell Trade
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
