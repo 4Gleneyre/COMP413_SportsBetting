@@ -65,7 +65,15 @@ export default function BettingModal({ event, selectedTeam, onClose }: BettingMo
   }, [user]);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'events', event.id), (eventDoc) => {
+    // Convert event.id to string if it exists but isn't already a string
+    const eventId = event.id ? String(event.id) : null;
+    
+    if (!eventId) {
+      console.error('Missing event ID');
+      return () => {}; // Return empty cleanup function
+    }
+    
+    const unsub = onSnapshot(doc(db, 'events', eventId), (eventDoc) => {
       if (eventDoc.exists()) {
         setEventOdds(eventDoc.data() as Event);
       }
@@ -92,7 +100,7 @@ export default function BettingModal({ event, selectedTeam, onClose }: BettingMo
     
     try {
       await placeBetFunction({
-        eventId: event.id,
+        eventId: String(event.id),
         selectedTeam: selectedTeam,
         betAmount: numericAmount,
         odds: selectedOdds

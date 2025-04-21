@@ -106,9 +106,17 @@ export default function GameInfoModal({ event, onClose, onSelectTeam }: GameInfo
 
   // Fetch odds history data when the modal opens
   useEffect(() => {
+    // Convert event.id to string if it exists but isn't already a string
+    const eventId = event.id ? String(event.id) : null;
+    
+    if (!eventId) {
+      console.error('Missing event ID');
+      return () => {}; // Return empty cleanup function
+    }
+    
     const unsubscribe = onSnapshot(
       query(
-        collection(db, 'events', event.id, 'oddsHistory'),
+        collection(db, 'events', eventId, 'oddsHistory'),
         orderBy('timestamp', 'asc')
       ),
       (snapshot) => {
