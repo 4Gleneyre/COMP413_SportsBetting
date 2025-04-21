@@ -833,8 +833,23 @@ export const getUserProfileInfo = onCall(
             console.warn(`Trade document ${tradeDoc.id} exists but data is undefined.`);
             return null;
           }
-
           const event = eventsMap.get(tradeData.eventId);
+
+          const initialOdds: number | undefined = tradeData.selectedOdds;
+
+          let currentOdds: number | undefined;
+          if (event) {
+            currentOdds =
+              tradeData.selectedTeam === 'home'
+                ? event.homeTeamCurrentOdds
+                : event.visitorTeamCurrentOdds;
+          }
+
+          const currentValue =
+            typeof initialOdds === 'number' && typeof currentOdds === 'number'
+              ? tradeData.amount * (initialOdds / currentOdds)
+              : null;
+
           const createdAtTimestamp = tradeData.createdAt;
           const serializedCreatedAt = createdAtTimestamp ? {
             seconds: createdAtTimestamp.seconds,
@@ -846,6 +861,7 @@ export const getUserProfileInfo = onCall(
             id: tradeDoc.id,
             createdAt: serializedCreatedAt,
             event: event,
+            currentValue,
           };
         }).filter((trade): trade is any => trade !== null);
 
