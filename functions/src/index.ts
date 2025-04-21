@@ -1745,27 +1745,96 @@ export const editPost = onCall(
 // --- Marketplace Logic: buyBet & sellBet ---
 
 /**
- * Allows a user to list a bet for sale
+ * Sells a pending bet and credits the user's wallet with the current value
  */
 export const sellBet = onCall({
   region: "us-central1"
 }, async (request) => {
-  const { betId, salePrice } = request.data;
+  // Authentication check
   const auth = request.auth;
-  if (!auth) throw new HttpsError("unauthenticated", "Not signed in");
-  if (!betId || typeof salePrice !== "number") throw new HttpsError("invalid-argument", "Missing or invalid arguments");
-
-  const betRef = db.collection("trades").doc(betId);
-  const betSnap = await betRef.get();
-  if (!betSnap.exists) throw new HttpsError("not-found", "Bet not found");
-  const betData = betSnap.data();
-  if (!betData) throw new HttpsError("not-found", "Bet not found");
-  if (betData.userId !== auth.uid) throw new HttpsError("permission-denied", "You do not own this bet");
-  if (betData.forSale) throw new HttpsError("failed-precondition", "Bet already for sale");
-  if (betData.status && betData.status !== "Pending") throw new HttpsError("failed-precondition", "Bet is not pending");
-
-  await betRef.update({ forSale: true, salePrice });
-  return { success: true };
+  if (!auth) throw new HttpsError("unauthenticated", "User must be authenticated");
+  
+  const { tradeId } = request.data;
+  if (!tradeId) throw new HttpsError("invalid-argument", "Trade ID is required");
+  
+  try {
+    // Get the trade document
+    const tradeRef = db.collection("trades").doc(tradeId);
+    const tradeSnap = await tradeRef.get();
+    
+    if (!tradeSnap.exists) {
+      throw new HttpsError("not-found", "Trade not found");
+    }
+    
+    const tradeData = tradeSnap.data();
+    if (!tradeData) {
+      throw new HttpsError("not-found", "Trade data is missing");
+    }
+    
+    // Verify the user owns this trade
+    if (tradeData.userId !== auth.uid) {
+      throw new HttpsError("permission-denied", "You do not own this trade");
+    }
+    
+    // Check if trade is in a valid state to be sold
+    if (tradeData.status !== "Pending") {
+      throw new HttpsError("failed-precondition", "Only pending trades can be sold");
+    }
+    
+    // Calculate the current value of the trade
+    let currentValue = tradeData.amount; // Default to original amount
+    
+    // If we have event data, get the current odds to calculate value
+    if (tradeData.eventId) {
+      const eventRef = db.collection("events").doc(tradeData.eventId);
+      const eventSnap = await eventRef.get();
+      
+      if (eventSnap.exists) {
+        const eventData = eventSnap.data();
+        if (eventData) {
+          const initialOdds = tradeData.selectedOdds;
+          let currentOdds;
+          
+          if (tradeData.selectedTeam === 'home') {
+            currentOdds = eventData.homeTeamCurrentOdds;
+          } else if (tradeData.selectedTeam === 'visitor') {
+            currentOdds = eventData.visitorTeamCurrentOdds;
+          } else if (tradeData.selectedTeam === 'draw') {
+            currentOdds = eventData.drawOdds;
+          }
+          
+          // Calculate current value using the same formula as in getUserProfileInfo
+          if (typeof initialOdds === 'number' && typeof currentOdds === 'number') {
+            currentValue = tradeData.amount * (initialOdds / currentOdds);
+          }
+        }
+      }
+    }
+    
+    // Run as a transaction to ensure atomic updates
+    await db.runTransaction(async (transaction) => {
+      // Update the trade status
+      transaction.update(tradeRef, { 
+        status: "Sold",
+        soldAt: admin.firestore.FieldValue.serverTimestamp(),
+        soldValue: currentValue
+      });
+      
+      // Update the user's wallet balance
+      const userRef = db.collection("users").doc(auth.uid);
+      transaction.update(userRef, {
+        walletBalance: admin.firestore.FieldValue.increment(currentValue)
+      });
+    });
+    
+    return { 
+      success: true,
+      soldValue: currentValue
+    };
+  } catch (error) {
+    console.error("Error selling trade:", error);
+    throw new HttpsError("internal", "Failed to sell trade: " + error);
+  }
 });
 
 // --- End Marketplace Logic ---
