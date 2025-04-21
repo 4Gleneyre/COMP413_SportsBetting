@@ -19,7 +19,7 @@ import GameInfoModal from '@/components/GameInfoModal';
 import BettingModal from '@/components/BettingModal';
 
 // Import the TeamLogo component from the main page
-function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: string }) {
+export function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: string }) {
   const [imageExists, setImageExists] = useState(true);
 
   return imageExists ? (
