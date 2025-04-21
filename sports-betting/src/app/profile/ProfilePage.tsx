@@ -518,16 +518,10 @@ export default function ProfilePage() {
 
   useEffect(() => {
     async function fetchUserData() {
-      
       // Only fetch wallet/pnl/trades if it's the user's own profile and user is logged in
-      if (!user) {
-        console.log('User not logged in, skipping detailed user data fetch');
-        return;
-      }
-      
-      // If viewing another user's profile, skip fetching current user's trades
-      if (profileUserId && profileUserId !== user.uid) {
-        console.log('Viewing another user\'s profile, skipping current user data fetch');
+      if (!user || !isOwnProfile) {
+        console.log('Not own profile or user not logged in, skipping detailed user data fetch');
+        if (!profileUserId) setLoading(false); // Ensure loading stops if no profileId was ever set
         return;
       }
       
@@ -552,7 +546,68 @@ export default function ProfilePage() {
         setLifetimePnl(userData.lifetimePnl ?? null);
         // Set privacy setting from the 'private' field
         setIsPrivateProfile(userData.private ?? false);
-        } catch (error) {
+
+        // Fetch trades separately for own profile using the function to ensure consistency
+        // (or rely on Firestore listener if you prefer real-time updates for own profile)
+        // For simplicity here, let's call the function again for own profile too
+        // Alternatively, could set up a listener only for own profile trades
+        try {
+          const getUserProfileInfo = httpsCallable(functions, 'getUserProfileInfo');
+          const result = await getUserProfileInfo({ userId: targetUserId });
+          const profileData = result.data as UserProfileInfoResponse;
+          setTrades(profileData.trades || []);
+        } catch (tradeError) {
+          console.error('Error fetching trades for own profile:', tradeError);
+          setTrades([]); // Clear trades on error
+        }
+        
+        /* 
+        // --- OLD TRADE FETCHING LOGIC (REMOVED) --- 
+        const userTrades = userData.trades || [];
+        console.log('Found trade IDs:', userTrades);
+        
+        // Fetch all trades
+        const tradesData: Trade[] = [];
+        if (userTrades.length > 0) {
+          const tradesQuery = query(collection(db, 'trades'), where(documentId(), 'in', userTrades));
+          const tradeDocs = await getDocs(tradesQuery);
+
+          const eventPromises = tradeDocs.docs.map(async (tradeDoc) => {
+            const tradeData = { id: tradeDoc.id, ...tradeDoc.data() } as Trade;
+    try {
+      const eventDoc = await getDoc(doc(db, 'events', tradeData.eventId));
+      if (eventDoc.exists()) {
+                const eventData = eventDoc.data() as Event;
+        eventData.id = eventDoc.id;
+                // Add datetime property
+        if (eventData.date && !eventData.datetime) {
+          eventData.datetime = eventData.time
+            ? `${eventData.date}T${eventData.time}`
+            : `${eventData.date}T00:00:00`;
+        }
+                tradeData.event = eventData;
+              }
+            } catch (eventError) {
+              console.error('Error fetching event for trade:', tradeData.id, eventError);
+            }
+            return tradeData;
+          });
+
+          const resolvedTrades = await Promise.all(eventPromises);
+          // Sort trades by createdAt timestamp, newest first
+          resolvedTrades.sort((a, b) => {
+            const timeA = a.createdAt?.toMillis() || 0;
+            const timeB = b.createdAt?.toMillis() || 0;
+            return timeB - timeA;
+          });
+          tradesData.push(...resolvedTrades);
+        }
+
+        setTrades(tradesData);
+        // --- END OF OLD TRADE FETCHING LOGIC --- 
+        */
+
+      } catch (error) {
         console.error('Error fetching own user data:', error);
       } finally {
         setLoading(false);
@@ -561,17 +616,10 @@ export default function ProfilePage() {
 
     fetchUserData();
   // Depend on user and isOwnProfile. isOwnProfile changes when profileUserId or user changes.
-  }, [user, isOwnProfile, profileUserId, functions]); 
-
-  useEffect(() => {
-    /* as soon as the URL gives us a new userId, blank the list         *
-     * so we never flash the previous owner’s trades on the screen.      */
-    setTrades([]);
-  }, [profileUserId]);
+  }, [user, isOwnProfile, functions]); 
 
   // Fetch user posts
   useEffect(() => {
-    if (!isOwnProfile) return;
     async function fetchUserPosts() {
       // Determine which user ID to use for posts fetching
       const targetUserId = profileUserId || (user ? user.uid : null);
@@ -986,7 +1034,7 @@ export default function ProfilePage() {
           <div className="relative mb-4">
             <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
               <svg className="w-4 h-4 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 19-4-4m0-7A7 7 0 1 1 1 8a7 7 0 0 1 14 0Z"/>
+                <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="m19 19-4-4m0-7A7 7 0 1 1 1 8a7 7 0 0 1 14 0Z"/>
               </svg>
             </div>
             <input
