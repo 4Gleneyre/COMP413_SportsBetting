@@ -131,6 +131,10 @@ export default function ForYou() {
 
       {/* Posts Section */}
       <div className="mt-10">
+        <div className="flex items-center mb-6">
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Posts</h3>
+        </div>
+        
         {loadingPosts ? (
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
