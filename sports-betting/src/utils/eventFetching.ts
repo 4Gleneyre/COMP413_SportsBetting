@@ -39,7 +39,11 @@ export const fetchEvents = async (options: EventFetchOptions = {}) => {
 
   try {
     const eventsRef = collection(db, 'events');
-    let constraints: any[] = [];
+    let constraints: any[] = [
+      orderBy('date', 'asc'),
+      orderBy('__name__', 'asc'),
+      limit(pageSize)
+    ];
     
     // Add date filter if a date range is selected
     if (filterDates[0]) {
@@ -64,7 +68,6 @@ export const fetchEvents = async (options: EventFetchOptions = {}) => {
   }
     }
 
-    // If search query is provided, fetch a larger batch to search within
     const batchSize = searchQuery.trim() !== '' ? 500 : pageSize;
     
     constraints.push(
@@ -135,10 +138,8 @@ export const fetchEvents = async (options: EventFetchOptions = {}) => {
       // Return events and pagination info
       return {
         events: newEvents,
-        lastDoc: searchQuery.trim() !== '' ? null : lastDocument, // Don't use lastDoc with search
-        hasMore: searchQuery.trim() !== '' 
-          ? newEvents.length === pageSize  // For search, we estimate hasMore
-          : querySnapshot.docs.length === batchSize // For regular queries, use batch size
+        lastDoc: querySnapshot.docs[querySnapshot.docs.length - 1],
+        hasMore: querySnapshot.docs.length === pageSize
       };
     } else {
       console.log('[fetchEvents] No documents returned, returning empty.'); // Log empty result
