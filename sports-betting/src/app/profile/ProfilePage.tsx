@@ -789,7 +789,7 @@ export default function ProfilePage() {
         <div className="text-center">
           <h2 className="text-2xl font-bold mb-4">Profile</h2>
           <p className="text-gray-500 dark:text-gray-400">
-            Please sign in to view your profile and trade history.
+            Please sign in to view your profile and trades.
           </p>
         </div>
       </div>
@@ -828,14 +828,14 @@ export default function ProfilePage() {
       return (
         <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
           <p className="text-gray-500 dark:text-gray-400">
-            This user&apos;s profile setting is set to private, so you can&apos;t view the user&apos;s trade history.
+            This user&apos;s profile setting is set to private, so you can&apos;t view the user&apos;s trades.
           </p>
         </div>
       );
     }
     
     if (loading) {
-      return <div className="text-center p-4">Loading trade history...</div>;
+      return <div className="text-center p-4">Loading trades...</div>;
     }
 
     if (trades.length === 0) {
@@ -975,6 +975,21 @@ export default function ProfilePage() {
                       {formatCurrency(trade.expectedPayout)}
                     </p>
                   </div>
+                  
+                  {/* Sell Button - Only show for pending trades */}
+                  {trade.status?.toLowerCase() === 'pending' && (
+                    <div className="mt-2">
+                      <button
+                        className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm"
+                        onClick={() => {
+                          // Placeholder for sell functionality
+                          console.log('Sell trade:', trade.id);
+                        }}
+                      >
+                        Sell Trade
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1158,7 +1173,7 @@ export default function ProfilePage() {
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
             }`}
           >
-            Trade History
+            Trades
           </button>
           )}
         </div>

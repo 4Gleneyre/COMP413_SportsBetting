@@ -571,6 +571,18 @@ export const placeBet = onCall(
       transaction.update(eventRef, eventUpdates);
 
       // NOTE: no more recomputation of existing trades’ currentStakeValue
+      const oddsHistoryRef = db
+        .collection("events")
+        .doc(eventId)
+        .collection("oddsHistory")
+        .doc();  // auto‐ID
+
+      transaction.set(oddsHistoryRef, {
+        homeTeamOdds: newHomeOdds,
+        visitorTeamOdds: newVisitorOdds,
+        source: "placedBet",
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
       return {
         tradeId: tradeRef.id,

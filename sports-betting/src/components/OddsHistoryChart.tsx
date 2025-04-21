@@ -124,16 +124,27 @@ export default function OddsHistoryChart({
   // Format data for Chart.js
   const chartData = {
     labels: oddsHistory.map(record => {
-      // Add debug statements to investigate timestamp issues
-      console.log('Raw timestamp value:', record.timestamp);
-      console.log('Timestamp type:', typeof record.timestamp);
-      console.log('Timestamp constructor:', record.timestamp?.constructor?.name);
+      // Convert Firestore Timestamp to JavaScript Date properly
+      let dateObj;
       
-      const date = new Date(record.timestamp);
-      console.log('Converted date object:', date);
-      console.log('Is valid date:', !isNaN(date.getTime()));
+      if (record.timestamp && typeof record.timestamp.toDate === 'function') {
+        // If it's a Firestore Timestamp object, use its toDate() method
+        dateObj = record.timestamp.toDate();
+      } else if (record.timestamp instanceof Date) {
+        // If it's already a Date object, use it directly
+        dateObj = record.timestamp;
+      } else {
+        // Fallback for other formats
+        dateObj = new Date(record.timestamp);
+      }
       
-      return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      // Format the date if it's valid, otherwise show 'Invalid Date'
+      if (!isNaN(dateObj.getTime())) {
+        return dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } else {
+        console.error('Invalid timestamp:', record.timestamp);
+        return 'Invalid Date';
+      }
     }),
     datasets: [
       {
