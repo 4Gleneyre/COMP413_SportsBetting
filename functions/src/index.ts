@@ -39,7 +39,7 @@ async function getPredictedOdds(homeTeam: any, visitorTeam: any) {
     }
     
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
+      model: "gemini-2.5-flash-preview-04-17",
     });
     
     // Create a prompt with relevant team information
@@ -101,7 +101,7 @@ async function getSoccerPredictedOdds(homeTeam: any, awayTeam: any, competition:
     }
     
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
+      model: "gemini-2.5-flash-preview-04-17",
     });
     
     // Create a prompt with relevant team information
@@ -377,227 +377,209 @@ export const updateRecentNbaGames = onSchedule("every 1 hours", async (event) =>
   }
 });
 
-export const placeBet = onCall({
-  region: 'us-central1',
-  maxInstances: 10,
-}, async (request) => {
-  // Ensure the user is authenticated.
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "User must be authenticated.");
-  }
-  
-  const uid = request.auth.uid;
-  const { eventId, betAmount, selectedTeam, odds } = request.data;
-
-  // Validate required input.
-  if (!eventId || betAmount == null || !selectedTeam) {
-    throw new HttpsError("invalid-argument", "Missing required fields.");
-  }
-  if (typeof betAmount !== "number" || betAmount <= 0) {
-    throw new HttpsError("invalid-argument", "Bet amount must be a positive number.");
-  }
-  if (selectedTeam !== "home" && selectedTeam !== "visitor" && selectedTeam !== "draw") {
-    throw new HttpsError("invalid-argument", "Selected team must be 'home', 'visitor', or 'draw'.");
-  }
-
-  // Use a transaction for atomicity.
-  const userRef = db.collection("users").doc(uid);
-  return db.runTransaction(async (transaction) => {
-    const userDoc = await transaction.get(userRef);
-    if (!userDoc.exists) {
-      throw new HttpsError("not-found", "User document not found.");
+export const placeBet = onCall(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+  },
+  async (request) => {
+    // Authentication & basic validation
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated.");
     }
-    const userData = userDoc.data();
-    const walletBalance = userData?.walletBalance || 0;
-    
-    // Initialize lifetimePnl field if it doesn't exist
-    const userUpdates: any = {
-      walletBalance: walletBalance - betAmount,
-    };
-    
-    // If lifetimePnl doesn't exist, initialize it to 0
-    if (userData?.lifetimePnl === undefined) {
-      userUpdates.lifetimePnl = 0;
+    const uid = request.auth.uid;
+    const { eventId, betAmount, selectedTeam, odds } = request.data;
+    if (!eventId || betAmount == null || !selectedTeam) {
+      throw new HttpsError("invalid-argument", "Missing required fields.");
+    }
+    if (typeof betAmount !== "number" || betAmount <= 0) {
+      throw new HttpsError("invalid-argument", "Bet amount must be a positive number.");
+    }
+    if (!["home", "visitor", "draw"].includes(selectedTeam)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Selected team must be 'home', 'visitor', or 'draw'."
+      );
     }
 
-    // Ensure the user has enough funds.
-    if (betAmount > walletBalance) {
-      throw new HttpsError("failed-precondition", "Insufficient balance.");
-    }
-
-    // Get the event document to retrieve the current odds
+    const db = admin.firestore();
+    const userRef = db.collection("users").doc(uid);
     const eventRef = db.collection("events").doc(eventId);
-    const eventDoc = await transaction.get(eventRef);
-    
-    if (!eventDoc.exists) {
-      throw new HttpsError("not-found", "Event not found.");
-    }
-    
-    const eventData = eventDoc.data()!;
-    const isSoccer = eventData.sport === 'soccer';
-    
-    // Get the appropriate odds based on the selected team
-    let selectedOdds = odds; // Use provided odds if available
-    if (!selectedOdds) {
-      if (selectedTeam === "home") {
-        selectedOdds = eventData.homeTeamCurrentOdds;
-      } else if (selectedTeam === "visitor") {
-        selectedOdds = eventData.visitorTeamCurrentOdds;
-      } else if (selectedTeam === "draw" && isSoccer) {
-        selectedOdds = eventData.drawOdds || 20; // Default to 20% for draw if not set
-      }
-    }
-    
-    // Calculate expected payout based on odds
-    // For betting, lower probability (odds) should result in higher payouts
-    // This formula gives a payout of 2x for a 50% probability
-    const expectedPayout = betAmount * (100 / selectedOdds);
 
-    // Create the trade document.
-    const tradeRef = db.collection("trades").doc();
-    transaction.set(tradeRef, {
-      userId: uid,
-      eventId,
-      amount: betAmount,
-      expectedPayout: expectedPayout,
-      selectedTeam,
-      selectedOdds: selectedOdds, // Save the odds at the time of bet
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      status: "Pending"
+    return db.runTransaction(async (transaction) => {
+      // --- User wallet & trade creation ---
+      const userDoc = await transaction.get(userRef);
+      if (!userDoc.exists) {
+        throw new HttpsError("not-found", "User document not found.");
+      }
+      const userData: any = userDoc.data();
+      const walletBalance = userData.walletBalance || 0;
+      if (betAmount > walletBalance) {
+        throw new HttpsError("failed-precondition", "Insufficient balance.");
+      }
+
+      // Deduct balance; init lifetimePnl if needed
+      const userUpdates: any = { walletBalance: walletBalance - betAmount };
+      if (userData.lifetimePnl === undefined) {
+        userUpdates.lifetimePnl = 0;
+      }
+
+      // Fetch event state
+      const eventDoc = await transaction.get(eventRef);
+      if (!eventDoc.exists) {
+        throw new HttpsError("not-found", "Event not found.");
+      }
+      const eventData: any = eventDoc.data()!;
+      const isSoccer = eventData.sport === "soccer";
+
+      // Determine which odds to use for expected payout
+      let selectedOdds = odds;
+      if (!selectedOdds) {
+        if (selectedTeam === "home") selectedOdds = eventData.homeTeamCurrentOdds;
+        else if (selectedTeam === "visitor")
+          selectedOdds = eventData.visitorTeamCurrentOdds;
+        else if (selectedTeam === "draw" && isSoccer) selectedOdds = eventData.drawOdds || 20;
+      }
+      const expectedPayout = betAmount * (100 / selectedOdds);
+
+      // Create the trade
+      const tradeRef = db.collection("trades").doc();
+      transaction.set(tradeRef, {
+        userId: uid,
+        eventId,
+        amount: betAmount,
+        expectedPayout,
+        selectedTeam,
+        selectedOdds,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        status: "Pending",
+      });
+      userUpdates.trades = admin.firestore.FieldValue.arrayUnion(tradeRef.id);
+      transaction.update(userRef, userUpdates);
+
+      // --- DYNAMIC ODDS LOGIC ---
+      // 1) Load and increment total pools
+      let homeBetAmount =
+        typeof eventData.homeBetAmount === "number" ? eventData.homeBetAmount : 0;
+      let visitorBetAmount =
+        typeof eventData.visitorBetAmount === "number"
+          ? eventData.visitorBetAmount
+          : 0;
+      let drawBetAmount =
+        isSoccer && typeof eventData.drawBetAmount === "number"
+          ? eventData.drawBetAmount
+          : 0;
+
+      if (selectedTeam === "home") homeBetAmount += betAmount;
+      else if (selectedTeam === "visitor") visitorBetAmount += betAmount;
+      else if (selectedTeam === "draw") drawBetAmount += betAmount;
+
+      const totalBet =
+        homeBetAmount + visitorBetAmount + (isSoccer ? drawBetAmount : 0);
+
+      // 2) Previous (seed) probabilities
+      const prevHomeProb = (eventData.homeTeamCurrentOdds as number) / 100;
+      const prevVisitorProb = (eventData.visitorTeamCurrentOdds as number) / 100;
+      const prevDrawProb = isSoccer
+        ? (eventData.drawOdds as number) / 100
+        : 0;
+
+      // 3) Market probabilities
+      const marketHomeProb =
+        totalBet > 0 ? homeBetAmount / totalBet : prevHomeProb;
+      const marketVisitorProb =
+        totalBet > 0 ? visitorBetAmount / totalBet : prevVisitorProb;
+      const marketDrawProb =
+        isSoccer && totalBet > 0 ? drawBetAmount / totalBet : prevDrawProb;
+
+      // 4) Combine via α
+      const alpha =
+        typeof eventData.oddsAlpha === "number" ? eventData.oddsAlpha : 0.5;
+      let rawHomeProb = alpha * prevHomeProb + (1 - alpha) * marketHomeProb;
+      let rawVisitorProb =
+        alpha * prevVisitorProb + (1 - alpha) * marketVisitorProb;
+      let rawDrawProb = isSoccer
+        ? alpha * prevDrawProb + (1 - alpha) * marketDrawProb
+        : 0;
+
+      // Normalize to sum to 1
+      const sumRaw =
+        rawHomeProb + rawVisitorProb + (isSoccer ? rawDrawProb : 0);
+      rawHomeProb /= sumRaw;
+      rawVisitorProb /= sumRaw;
+      if (isSoccer) rawDrawProb /= sumRaw;
+
+      // 5) Smooth by β
+      const beta = 0.1;
+      const smooth = (newP: number, oldP: number) => {
+        const diff = newP - oldP;
+        if (Math.abs(diff) <= beta) return newP;
+        return oldP + Math.sign(diff) * beta;
+      };
+      let newHomeProb = smooth(rawHomeProb, prevHomeProb);
+      let newVisitorProb = smooth(rawVisitorProb, prevVisitorProb);
+      let newDrawProb = isSoccer
+        ? smooth(rawDrawProb, prevDrawProb)
+        : 0;
+
+      // Final re‐normalize
+      const sumNew =
+        newHomeProb + newVisitorProb + (isSoccer ? newDrawProb : 0);
+      newHomeProb /= sumNew;
+      newVisitorProb /= sumNew;
+      if (isSoccer) newDrawProb /= sumNew;
+
+      const floatOdds = isSoccer
+        ? [newHomeProb * 100, newVisitorProb * 100, newDrawProb * 100]
+        : [newHomeProb * 100, newVisitorProb * 100];
+
+      // 1) Floor each
+      const floors     = floatOdds.map(f => Math.floor(f));
+      // 2) Compute remainders
+      const remainders = floatOdds.map((f,i) => f - floors[i]);
+      // 3) Distribute leftover points
+      let leftover = 100 - floors.reduce((s,v) => s + v, 0);
+      const finalOdds = floors.slice();
+      while (leftover > 0) {
+        const idx = remainders
+          .map((r,i) => ({ r, i }))
+          .sort((a,b) => b.r - a.r)[0].i;
+        finalOdds[idx] += 1;
+        remainders[idx] = -1;
+        leftover--;
+      }
+
+      // 4) Pull back into your three odds
+      const newHomeOdds    = finalOdds[0];
+      const newVisitorOdds = finalOdds[1];
+      const newDrawOdds    = isSoccer ? finalOdds[2] : undefined;
+
+      // Persist updated event state
+      const eventUpdates: any = {
+        trades: admin.firestore.FieldValue.arrayUnion(tradeRef.id),
+        homeBetAmount,
+        visitorBetAmount,
+        homeTeamCurrentOdds: newHomeOdds,
+        visitorTeamCurrentOdds: newVisitorOdds,
+        oddsAlpha: alpha,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      if (isSoccer) {
+        eventUpdates.drawBetAmount = drawBetAmount;
+        eventUpdates.drawOdds = newDrawOdds;
+      }
+      transaction.update(eventRef, eventUpdates);
+
+      // NOTE: no more recomputation of existing trades’ currentStakeValue
+
+      return {
+        tradeId: tradeRef.id,
+        expectedPayout,
+        selectedOdds,
+      };
     });
-
-    // Add the trade ID to the user's trades array
-    userUpdates.trades = admin.firestore.FieldValue.arrayUnion(tradeRef.id);
-    
-    // Update the user document with all changes
-    transaction.update(userRef, userUpdates);
-
-    // --- DYNAMIC ODDS LOGIC ---
-    // Always read the current state from the event document
-    let homeBetAmount = typeof eventData.homeBetAmount === "number" ? eventData.homeBetAmount : 0;
-    let visitorBetAmount = typeof eventData.visitorBetAmount === "number" ? eventData.visitorBetAmount : 0;
-    let drawBetAmount = typeof eventData.drawBetAmount === "number" ? eventData.drawBetAmount : 0;
-    
-    // Increment the correct team's bet amount
-    if (selectedTeam === "home") {
-      homeBetAmount += betAmount;
-    } else if (selectedTeam === "visitor") {
-      visitorBetAmount += betAmount;
-    } else if (selectedTeam === "draw") {
-      drawBetAmount += betAmount;
-    }
-    
-    // Calculate the total bet pool
-    const totalBet = homeBetAmount + visitorBetAmount + (isSoccer ? drawBetAmount : 0);
-    
-    // Market odds: payout ratio based on proportion of money bet
-    // If no bets on a team, set odds to a default high value (e.g., 1000)
-    const marketHomeOdds = homeBetAmount > 0 ? (100 * totalBet / homeBetAmount) : 1000;
-    const marketVisitorOdds = visitorBetAmount > 0 ? (100 * totalBet / visitorBetAmount) : 1000;
-    const marketDrawOdds = drawBetAmount > 0 ? (100 * totalBet / drawBetAmount) : 1000;
-    
-    // Retrieve AI odds (prefer stored, fallback to current odds, fallback to default)
-    const aiHomeOdds = typeof eventData.homeTeamAiOdds === "number" ? eventData.homeTeamAiOdds : (typeof eventData.homeTeamCurrentOdds === "number" ? eventData.homeTeamCurrentOdds : 50);
-    const aiVisitorOdds = typeof eventData.visitorTeamAiOdds === "number" ? eventData.visitorTeamAiOdds : (typeof eventData.visitorTeamCurrentOdds === "number" ? eventData.visitorTeamCurrentOdds : 50);
-    const aiDrawOdds = typeof eventData.drawAiOdds === "number" ? eventData.drawAiOdds : (typeof eventData.drawOdds === "number" ? eventData.drawOdds : (isSoccer ? 20 : 0));
-    
-    // Set alpha (weight for AI odds vs market odds)
-    const alpha = typeof eventData.oddsAlpha === "number" ? eventData.oddsAlpha : 0.5;
-    
-    // Combine odds: odds = alpha * ai_odds + (1-alpha) * market_odds
-    let rawHomeOdds = alpha * aiHomeOdds + (1 - alpha) * marketHomeOdds;
-    let rawVisitorOdds = alpha * aiVisitorOdds + (1 - alpha) * marketVisitorOdds;
-    let rawDrawOdds = isSoccer ? (alpha * aiDrawOdds + (1 - alpha) * marketDrawOdds) : 0;
-    
-    // --- Smoothing factor beta ---
-    const beta = 0.1;
-    
-    // Smooth home odds
-    let prevHomeOdds = typeof eventData.homeTeamCurrentOdds === "number" ? eventData.homeTeamCurrentOdds : rawHomeOdds;
-    let newHomeOdds = rawHomeOdds;
-    if (Math.abs(rawHomeOdds - prevHomeOdds) > beta) {
-      newHomeOdds = prevHomeOdds + Math.sign(rawHomeOdds - prevHomeOdds) * beta;
-    }
-    
-    // Smooth visitor odds
-    let prevVisitorOdds = typeof eventData.visitorTeamCurrentOdds === "number" ? eventData.visitorTeamCurrentOdds : rawVisitorOdds;
-    let newVisitorOdds = rawVisitorOdds;
-    if (Math.abs(rawVisitorOdds - prevVisitorOdds) > beta) {
-      newVisitorOdds = prevVisitorOdds + Math.sign(rawVisitorOdds - prevVisitorOdds) * beta;
-    }
-    
-    // Smooth draw odds (for soccer)
-    let prevDrawOdds = typeof eventData.drawOdds === "number" ? eventData.drawOdds : rawDrawOdds;
-    let newDrawOdds = rawDrawOdds;
-    if (isSoccer && Math.abs(rawDrawOdds - prevDrawOdds) > beta) {
-      newDrawOdds = prevDrawOdds + Math.sign(rawDrawOdds - prevDrawOdds) * beta;
-    }
-    
-    // Normalize odds to ensure they sum to 100% (for soccer with draw)
-    if (isSoccer) {
-      const totalOdds = newHomeOdds + newVisitorOdds + newDrawOdds;
-      if (totalOdds > 0) {
-        newHomeOdds = Math.round((newHomeOdds / totalOdds) * 100);
-        newVisitorOdds = Math.round((newVisitorOdds / totalOdds) * 100);
-        newDrawOdds = Math.round((newDrawOdds / totalOdds) * 100);
-      }
-    }
-    
-    // Atomically update event document with new state
-    const eventUpdates: any = {
-      trades: admin.firestore.FieldValue.arrayUnion(tradeRef.id),
-      homeBetAmount,
-      visitorBetAmount,
-      homeTeamCurrentOdds: newHomeOdds,
-      visitorTeamCurrentOdds: newVisitorOdds,
-      homeTeamAiOdds: aiHomeOdds, // Store for future reference
-      visitorTeamAiOdds: aiVisitorOdds,
-      oddsAlpha: alpha,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-    
-    // Add draw-specific fields for soccer
-    if (isSoccer) {
-      eventUpdates.drawBetAmount = drawBetAmount;
-      eventUpdates.drawOdds = newDrawOdds;
-      eventUpdates.drawAiOdds = aiDrawOdds;
-    }
-    
-    transaction.update(eventRef, eventUpdates);
-
-    // --- Update all previous trades for this event with new stake value ---
-    const tradesSnapshot = await db.collection("trades")
-      .where("eventId", "==", eventId)
-      .where("status", "==", "Pending")
-      .get();
-      
-    tradesSnapshot.forEach(tradeDoc => {
-      const trade = tradeDoc.data();
-      // Only update if the odds have changed (avoid divide by zero)
-      let oldOdds = trade.selectedOdds;
-      let newOdds;
-      
-      if (trade.selectedTeam === "home") {
-        newOdds = newHomeOdds;
-      } else if (trade.selectedTeam === "visitor") {
-        newOdds = newVisitorOdds;
-      } else if (trade.selectedTeam === "draw" && isSoccer) {
-        newOdds = newDrawOdds;
-      }
-      
-      if (typeof oldOdds === "number" && typeof newOdds === "number" && oldOdds > 0) {
-        const newStakeValue = trade.amount * (newOdds / oldOdds);
-        transaction.update(tradeDoc.ref, { currentStakeValue: newStakeValue });
-      }
-    });
-
-    return { 
-      tradeId: tradeRef.id,
-      expectedPayout: expectedPayout,
-      selectedOdds: selectedOdds
-    };
-  });
-});
+  }
+);
 
 export const getLatestActivity = onCall(
   {
@@ -1400,28 +1382,51 @@ export const getGameBettingAnalysis = onCall(
     maxInstances: 10,
   },
   async (request) => {
+    console.log("🔍 getGameBettingAnalysis invoked", {
+      uid: request.auth?.uid,
+      data: request.data,
+    });
+
     // Ensure the user is authenticated
     if (!request.auth) {
+      console.error("❌ Unauthenticated call to getGameBettingAnalysis");
       throw new HttpsError("unauthenticated", "User must be authenticated.");
     }
 
     // Get the input parameters
     const { homeTeam, awayTeam, gameDate } = request.data;
+    console.log("📥 Received params", { homeTeam, awayTeam, gameDate });
 
     // Validate required input
     if (!homeTeam || !awayTeam || !gameDate) {
+      console.error("❌ Missing required fields", { homeTeam, awayTeam, gameDate });
       throw new HttpsError(
         "invalid-argument",
         "Missing required fields: homeTeam, awayTeam, and gameDate are required."
       );
     }
+    console.log("✅ Input validation passed");
 
     try {
-      // Initialize OpenAI client with API key
-      // Note: In production, you should store this key in Firebase environment secrets
+      // Initialize OpenAI client
+      console.log("🔑 Initializing OpenAI client");
       const openai = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
       });
+
+      // Prepare prompt
+      const prompt = `Provide a detailed sports betting analysis for the NBA game between ${homeTeam} and ${awayTeam} scheduled for ${gameDate}. 
+1. Recent team performance and trends
+2. Key player stats and any injury updates
+3. Head-to-head history between these teams
+4. Current betting odds (spread, over/under, moneyline)
+5. Expert opinions and predictions
+6. Relevant statistical trends that might impact betting decisions
+
+Format this information in a clear, organized manner for someone making a betting decision.
+Include citations to your sources.`;
+
+      console.log("✉️ Sending prompt to OpenAI", { promptSnippet: prompt.slice(0, 100) + "…" });
 
       // Call OpenAI with web search enabled
       const response = await openai.responses.create({
@@ -1429,86 +1434,66 @@ export const getGameBettingAnalysis = onCall(
         tools: [
           { 
             type: "web_search_preview",
-            search_context_size: "high" // Use high quality search for better analysis
+            search_context_size: "high"
           }
         ],
-        input: `Provide a detailed sports betting analysis for the NBA game between ${homeTeam} and ${awayTeam} scheduled for ${gameDate}. 
-                Include the following:
-                1. Recent team performance and trends
-                2. Key player stats and any injury updates
-                3. Head-to-head history between these teams
-                4. Current betting odds (spread, over/under, moneyline)
-                5. Expert opinions and predictions
-                6. Relevant statistical trends that might impact betting decisions
-                
-                Format this information in a clear, organized manner for someone making a betting decision.
-                Include citations to your sources.`,
-        tool_choice: { type: "web_search_preview" }, // Force web search for consistent results
-        temperature: 0.2, // Lower temperature for more factual responses
+        input: prompt,
+        tool_choice: { type: "web_search_preview" },
+        temperature: 0.2,
       });
 
-      // Get the analysis text from the response
-      const analysisText = response.output_text || '';
-      
-      // Log the completion for debugging
-      console.log(`Completed search request for ${homeTeam} vs ${awayTeam} game analysis`);
+      console.log("✅ Received response from OpenAI");
 
-      // For typescript, we need to handle the response structure properly
-      // Let's extract any citations if available
-      let citations: Array<{text: string, url: string, title: string}> = [];
-      
+      // Extract analysis text
+      const analysisText = response.output_text || "";
+      console.log(`📝 analysisText length: ${analysisText.length}`);
+
+      // Log the completion for debugging
+      console.log(`🏁 Completed analysis for ${homeTeam} vs ${awayTeam}`);
+
+      // Extract citations if available
+      let citations: Array<{ text: string; url: string; title: string }> = [];
       try {
-        // Access annotations if available in the right format
-        // This structure depends on the OpenAI API version, may need adjustments
-        const messageItem = response.output.find(item => item.type === 'message');
-        if (messageItem && 'content' in messageItem) {
-          const content = messageItem.content;
-          if (Array.isArray(content) && content.length > 0 && 'annotations' in content[0]) {
+        console.log("🔎 Attempting to extract citations");
+        const messageItem = response.output.find(item => item.type === "message");
+        if (messageItem && "content" in messageItem) {
+          const content = (messageItem as any).content;
+          if (Array.isArray(content) && content[0]?.annotations) {
             const annotations = content[0].annotations;
-            if (Array.isArray(annotations)) {
-              citations = annotations
-                .filter(anno => anno.type === 'url_citation')
-                .map(anno => {
-                  // Type assertion to handle the TypeScript error
-                  const urlCitation = anno as { 
-                    type: string; 
-                    text?: string;
-                    start_index?: number; 
-                    end_index?: number; 
-                    url?: string; 
-                    title?: string 
-                  };
-                  
-                  // Safely access properties with optional chaining
-                  return {
-                    text: urlCitation.start_index !== undefined && urlCitation.end_index !== undefined 
-                          ? analysisText.substring(urlCitation.start_index, urlCitation.end_index)
-                          : 'Citation',
-                    url: urlCitation.url || '#',
-                    title: urlCitation.title || 'Source'
-                  };
-                });
-            }
+            citations = annotations
+              .filter((anno: any) => anno.type === "url_citation")
+              .map((anno: any) => ({
+                text:
+                  anno.start_index != null && anno.end_index != null
+                    ? analysisText.substring(anno.start_index, anno.end_index)
+                    : "Citation",
+                url: anno.url || "#",
+                title: anno.title || "Source",
+              }));
+            console.log(`🔗 Extracted ${citations.length} citations`);
+          } else {
+            console.log("ℹ️ No annotations array found in content");
           }
+        } else {
+          console.log("ℹ️ No message item in response.output");
         }
       } catch (e) {
-        console.warn('Failed to extract citations:', e);
-        // Continue with the analysis even if citation extraction fails
+        console.warn("⚠️ Failed to extract citations:", e);
       }
 
-      // Return the analysis results with citations if available
+      // Return the analysis results
       return {
         analysis: analysisText,
-        citations: citations,
+        citations,
         metadata: {
           homeTeam,
           awayTeam,
           gameDate,
           generatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        }
+        },
       };
     } catch (error) {
-      console.error("Error generating betting analysis:", error);
+      console.error("🔥 Error generating betting analysis:", error);
       throw new HttpsError(
         "internal",
         "Failed to generate betting analysis. Please try again later."
@@ -1516,6 +1501,7 @@ export const getGameBettingAnalysis = onCall(
     }
   }
 );
+
 
 export const createPost = onCall(
   {

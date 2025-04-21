@@ -124,7 +124,15 @@ export default function OddsHistoryChart({
   // Format data for Chart.js
   const chartData = {
     labels: oddsHistory.map(record => {
+      // Add debug statements to investigate timestamp issues
+      console.log('Raw timestamp value:', record.timestamp);
+      console.log('Timestamp type:', typeof record.timestamp);
+      console.log('Timestamp constructor:', record.timestamp?.constructor?.name);
+      
       const date = new Date(record.timestamp);
+      console.log('Converted date object:', date);
+      console.log('Is valid date:', !isNaN(date.getTime()));
+      
       return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }),
     datasets: [
