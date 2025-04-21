@@ -470,7 +470,9 @@ export default function ProfilePage() {
   // Determine if this is the logged-in user's profile
   useEffect(() => {
     if (user && profileUserId) {
+      console.log('Checking if current user is owner of profile', user.uid, profileUserId);
       setIsOwnProfile(user.uid === profileUserId);
+      console.log('Is own profile:', isOwnProfile);
     } else {
       setIsOwnProfile(true); // Default to own profile if no profile user ID is set
     }
@@ -479,10 +481,13 @@ export default function ProfilePage() {
   // Fetch profile user data if viewing another user's profile
   useEffect(() => {
     async function fetchProfileUserData() {
-      if (!profileUserId || (user && profileUserId === user.uid)) {
-        // If no profile user ID or if it's the current user, use current user data
-        setIsOwnProfile(true);
+      if (!profileUserId) {
+        console.log('No profile user ID found, skipping profile data fetch');
         return;
+      }
+      if (profileUserId === user?.uid) {
+        // If it's the current user, use current user data
+        setIsOwnProfile(true);
       }
 
       try {
@@ -505,7 +510,7 @@ export default function ProfilePage() {
 
         // Set the trades state with the data from the Cloud Function
         setTrades(profileData.trades || []); 
-        setIsOwnProfile(false); // We fetched data, so it's not the own profile
+        //setIsOwnProfile(false); // We fetched data, so it's not the own profile
         setIsPrivateProfile(profileData.private ?? false);
 
       } catch (error) {
@@ -526,7 +531,7 @@ export default function ProfilePage() {
       }
       
       // If viewing another user's profile, skip fetching current user's trades
-      if (profileUserId && profileUserId !== user.uid) {
+      if (!isOwnProfile) {
         console.log('Viewing another user\'s profile, skipping current user data fetch');
         return;
       }
@@ -552,7 +557,16 @@ export default function ProfilePage() {
         setLifetimePnl(userData.lifetimePnl ?? null);
         // Set privacy setting from the 'private' field
         setIsPrivateProfile(userData.private ?? false);
-        } catch (error) {
+
+        // try {
+        //   const getUserProfileInfo = httpsCallable(functions, 'getUserProfileInfo');
+        //   const result = await getUserProfileInfo({ userId: targetUserId });
+        //   const profileData = result.data as UserProfileInfoResponse;
+        //   setTrades(profileData.trades || []);
+        // } catch (error) {
+        //   console.error('Error fetching trades:', error);
+        // }
+      } catch (error) {
         console.error('Error fetching own user data:', error);
       } finally {
         setLoading(false);
@@ -563,15 +577,8 @@ export default function ProfilePage() {
   // Depend on user and isOwnProfile. isOwnProfile changes when profileUserId or user changes.
   }, [user, isOwnProfile, profileUserId, functions]); 
 
-  useEffect(() => {
-    /* as soon as the URL gives us a new userId, blank the list         *
-     * so we never flash the previous owner’s trades on the screen.      */
-    setTrades([]);
-  }, [profileUserId]);
-
   // Fetch user posts
   useEffect(() => {
-    if (!isOwnProfile) return;
     async function fetchUserPosts() {
       // Determine which user ID to use for posts fetching
       const targetUserId = profileUserId || (user ? user.uid : null);
@@ -984,14 +991,9 @@ export default function ProfilePage() {
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-6">
           {/* Search input */}
           <div className="relative mb-4">
-            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-              <svg className="w-4 h-4 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 19-4-4m0-7A7 7 0 1 1 1 8a7 7 0 0 1 14 0Z"/>
-              </svg>
-            </div>
             <input
               type="text"
-              className="block w-full p-2.5 pl-10 text-sm text-gray-900 border border-gray-300 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
+              className="block w-full p-2.5 text-sm text-gray-900 border border-gray-300 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
               placeholder="Search by team name..."
               value={tradeSearchQuery}
               onChange={(e) => setTradeSearchQuery(e.target.value)}
@@ -1130,18 +1132,20 @@ export default function ProfilePage() {
                           Pending
                         </span>
                       </div>
-                      <button
-                        className="py-2 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow"
-                        onClick={() => {
-                          setSelectedTradeForSale(trade);
-                          setIsSellTradeModalOpen(true);
-                        }}
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Sell Trade
-                      </button>
+                      {isOwnProfile && (
+                        <button
+                          className="py-2 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow"
+                          onClick={() => {
+                            setSelectedTradeForSale(trade);
+                            setIsSellTradeModalOpen(true);
+                          }}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Sell Trade
+                        </button>
+                      )}
                     </div>
                   )}
                   
