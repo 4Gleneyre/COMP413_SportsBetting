@@ -229,6 +229,134 @@ function parseLocalDate(dateString: string) {
   return date;
 }
 
+function SellTradeModal({ 
+  isOpen, 
+  onClose, 
+  trade,
+  onConfirm
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  trade: Trade;
+  onConfirm: () => Promise<void>;
+}) {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  if (!isOpen) return null;
+
+  const handleConfirm = async () => {
+    setError('');
+    setIsLoading(true);
+
+    try {
+      await onConfirm();
+      onClose();
+    } catch (err) {
+      console.error('Error while selling trade:', err);
+      setError('Failed to sell trade. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-md w-full mx-4 shadow-xl">
+        <div className="text-center mb-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 mb-4">
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-bold mb-2">Confirm Trade Sale</h3>
+          <p className="text-gray-600 dark:text-gray-300">
+            Are you sure you want to sell this trade?
+          </p>
+        </div>
+
+        <div className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg mb-6">
+          <div className="flex items-center gap-4 mb-4">
+            {trade.event && (
+              <div className="bg-white dark:bg-gray-700 p-3 rounded-lg">
+                <TeamLogo
+                  abbreviation={trade.selectedTeam === 'home' 
+                    ? trade.event.home_team.abbreviation 
+                    : trade.event.visitor_team.abbreviation}
+                  teamName={trade.selectedTeam === 'home'
+                    ? trade.event.home_team.full_name
+                    : trade.event.visitor_team.full_name}
+                  sport={trade.event?.sport}
+                  teamId={trade.selectedTeam === 'home'
+                    ? trade.event?.home_team?.id
+                    : trade.event?.visitor_team?.id}
+                />
+              </div>
+            )}
+            <div>
+              <h4 className="font-medium">
+                {trade.event
+                  ? (trade.selectedTeam === 'home'
+                    ? trade.event.home_team.full_name
+                    : trade.event.visitor_team.full_name)
+                  : 'Unknown Team'}
+              </h4>
+              {trade.event && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  vs {trade.selectedTeam === 'home'
+                    ? trade.event.visitor_team.full_name
+                    : trade.event.home_team.full_name}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-gray-500 dark:text-gray-400">Original Amount</p>
+              <p className="font-medium">{formatCurrency(trade.amount)}</p>
+            </div>
+            <div>
+              <p className="text-gray-500 dark:text-gray-400">Current Value</p>
+              <p className={`font-medium ${
+                (trade.currentValue || 0) > trade.amount 
+                  ? 'text-green-600 dark:text-green-400' 
+                  : (trade.currentValue || 0) < trade.amount 
+                    ? 'text-red-600 dark:text-red-400' 
+                    : ''
+              }`}>
+                {formatCurrency(trade.currentValue || trade.amount)}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <p className="text-red-500 text-sm mb-4">{error}</p>
+        )}
+
+        <div className="flex gap-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={isLoading}
+            className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+          >
+            {isLoading ? 'Processing...' : 'Confirm Sale'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -262,6 +390,12 @@ export default function ProfilePage() {
   // New state for profile privacy
   const [isPrivateProfile, setIsPrivateProfile] = useState(false);
   const [updatingPrivacy, setUpdatingPrivacy] = useState(false);
+  // New state for trades search and filtering
+  const [tradeSearchQuery, setTradeSearchQuery] = useState<string>('');
+  const [tradeStatusFilter, setTradeStatusFilter] = useState<'all' | 'pending' | 'won' | 'lost' | 'sold'>('all');
+  // New state for trade selling modal
+  const [selectedTradeForSale, setSelectedTradeForSale] = useState<Trade | null>(null);
+  const [isSellTradeModalOpen, setIsSellTradeModalOpen] = useState(false);
 
   /**
    * Fetch event by ID from Firestore
@@ -782,6 +916,52 @@ export default function ProfilePage() {
     }
   };
 
+  // Function to handle selling a trade
+  const handleSellTrade = async () => {
+    if (!user || !selectedTradeForSale) {
+      console.error('No user or selected trade found when trying to sell trade');
+      throw new Error('User or trade not found');
+    }
+
+    try {
+      console.log('Selling trade:', selectedTradeForSale.id);
+      
+      // Call the Cloud Function to sell the trade
+      const sellTradeFunction = httpsCallable(functions, 'sellTrade');
+      const result = await sellTradeFunction({ 
+        tradeId: selectedTradeForSale.id
+      });
+      
+      // Access the response data
+      const responseData = result.data as {
+        success: boolean;
+        newWalletBalance: number;
+        soldValue: number;
+      };
+      
+      if (responseData.success) {
+        // Update wallet balance
+        setWalletBalance(responseData.newWalletBalance);
+        
+        // Update the trade status in the local state
+        setTrades(prevTrades => 
+          prevTrades.map(trade => 
+            trade.id === selectedTradeForSale.id 
+              ? { ...trade, status: 'sold' } 
+              : trade
+          )
+        );
+        
+        console.log('Trade sold successfully for:', formatCurrency(responseData.soldValue));
+      } else {
+        throw new Error('Failed to sell trade');
+      }
+    } catch (error) {
+      console.error('Error while selling trade:', error);
+      throw error; // Re-throw to be caught by the modal's error handler
+    }
+  };
+
   // Add debug logs in the render logic
   if (!user && !profileUserId) {
     console.log('Rendering: No user view');
@@ -839,210 +1019,340 @@ export default function ProfilePage() {
       return <div className="text-center p-4">Loading trades...</div>;
     }
 
+    // Add search and filter UI
+    const renderTradeSearchAndFilter = () => {
+      // Count trades by status for the filter badges
+      const statusCounts = trades.reduce((acc, trade) => {
+        const status = trade.status?.toLowerCase() || 'unknown';
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      return (
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-6">
+          {/* Search input */}
+          <div className="relative mb-4">
+            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+              <svg className="w-4 h-4 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20">
+                <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="m19 19-4-4m0-7A7 7 0 1 1 1 8a7 7 0 0 1 14 0Z"/>
+              </svg>
+            </div>
+            <input
+              type="text"
+              className="block w-full p-2.5 pl-10 text-sm text-gray-900 border border-gray-300 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
+              placeholder="Search by team name..."
+              value={tradeSearchQuery}
+              onChange={(e) => setTradeSearchQuery(e.target.value)}
+            />
+          </div>
+          
+          {/* Filter buttons */}
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setTradeStatusFilter('all')}
+              className={`px-4 py-2 text-sm font-medium rounded-full transition-colors ${
+                tradeStatusFilter === 'all' 
+                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' 
+                  : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+              }`}
+            >
+              All ({trades.length})
+            </button>
+            
+            <button
+              onClick={() => setTradeStatusFilter('pending')}
+              className={`px-4 py-2 text-sm font-medium rounded-full transition-colors ${
+                tradeStatusFilter === 'pending' 
+                  ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300' 
+                  : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+              }`}
+            >
+              Pending ({statusCounts['pending'] || 0})
+            </button>
+            
+            <button
+              onClick={() => setTradeStatusFilter('won')}
+              className={`px-4 py-2 text-sm font-medium rounded-full transition-colors ${
+                tradeStatusFilter === 'won' 
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' 
+                  : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+              }`}
+            >
+              Won ({statusCounts['won'] || 0})
+            </button>
+            
+            <button
+              onClick={() => setTradeStatusFilter('lost')}
+              className={`px-4 py-2 text-sm font-medium rounded-full transition-colors ${
+                tradeStatusFilter === 'lost' 
+                  ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' 
+                  : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+              }`}
+            >
+              Lost ({statusCounts['lost'] || 0})
+            </button>
+            
+            <button
+              onClick={() => setTradeStatusFilter('sold')}
+              className={`px-4 py-2 text-sm font-medium rounded-full transition-colors ${
+                tradeStatusFilter === 'sold' 
+                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' 
+                  : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+              }`}
+            >
+              Sold ({statusCounts['sold'] || 0})
+            </button>
+          </div>
+        </div>
+      );
+    };
+
     if (trades.length === 0) {
       return (
-        <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
-          <p className="text-gray-500 dark:text-gray-400">
-            No trades placed yet.
-          </p>
-        </div>
+        <>
+          {renderTradeSearchAndFilter()}
+          <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
+            <p className="text-gray-500 dark:text-gray-400">
+              No trades placed yet.
+            </p>
+          </div>
+        </>
       );
     }
 
     console.log('Rendering: Trade History tab, trades:', trades);
 
+    // Filter trades based on search query and status filter
+    const filteredTrades = trades.filter(trade => {
+      // Status filter
+      if (tradeStatusFilter !== 'all' && trade.status?.toLowerCase() !== tradeStatusFilter) {
+        return false;
+      }
+      
+      // Search query filter
+      if (tradeSearchQuery.trim() !== '') {
+        const query = tradeSearchQuery.toLowerCase();
+        const homeTeamName = trade.event?.home_team?.full_name?.toLowerCase() || '';
+        const visitorTeamName = trade.event?.visitor_team?.full_name?.toLowerCase() || '';
+        const homeTeamAbbrev = trade.event?.home_team?.abbreviation?.toLowerCase() || '';
+        const visitorTeamAbbrev = trade.event?.visitor_team?.abbreviation?.toLowerCase() || '';
+        
+        return (
+          homeTeamName.includes(query) || 
+          visitorTeamName.includes(query) ||
+          homeTeamAbbrev.includes(query) ||
+          visitorTeamAbbrev.includes(query)
+        );
+      }
+      
+      return true;
+    });
+
     return (
-      <div className="space-y-6">
-        {trades.map((trade) => {
-          const eventDate = trade.event ? parseLocalDate(trade.event.datetime) : null;
-          return (
-            <div
-              key={trade.id}
-              className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 hover:border-gray-300 dark:hover:border-gray-600 transition-all hover:shadow-md"
-            >
-              {/* Add a header with status and sell button for pending trades */}
-              {trade.status?.toLowerCase() === 'pending' && (
-                <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100 dark:border-gray-700">
-                  <div className="flex items-center gap-2">
-                    <span className="px-3 py-1 rounded-full text-sm font-medium inline-flex items-center gap-1.5 bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      Pending
-                    </span>
-                  </div>
-                  <button
-                    className="py-2 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow"
-                    onClick={() => {
-                      console.log('Sell trade:', trade.id);
-                    }}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Sell Trade
-                  </button>
-                </div>
-              )}
-              
-              {/* Status badge for non-pending trades */}
-              {trade.status?.toLowerCase() !== 'pending' && (
-                <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-100 dark:border-gray-700">
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium inline-flex items-center gap-1.5 ${ 
-                    trade.status?.toLowerCase() === 'won'
-                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                      : trade.status?.toLowerCase() === 'lost'
-                      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                      : trade.status?.toLowerCase() === 'sold'
-                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                      : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300' // Default/Unknown
-                  }`}>
-                    {trade.status?.toLowerCase() === 'won' && (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    )}
-                    {trade.status?.toLowerCase() === 'lost' && (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    )}
-                    {trade.status?.toLowerCase() === 'sold' && (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    )}
-                    {trade.status ? trade.status.charAt(0).toUpperCase() + trade.status.slice(1) : 'Unknown'}
-                  </span>
-                </div>
-              )}
-
-              <div className="flex flex-col md:flex-row md:items-center gap-6">
-                {/* Team and Event Info */}
-                <div className="flex-grow space-y-4">
-                  <div className="flex items-center gap-4">
-                    {trade.event && (
-                      <div 
-                        className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg cursor-pointer"
-                        onClick={() => trade.event && setSelectedEvent(trade.event)}
+      <div>
+        {renderTradeSearchAndFilter()}
+        
+        {filteredTrades.length === 0 ? (
+          <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
+            <p className="text-gray-500 dark:text-gray-400">
+              No trades match your search criteria.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {filteredTrades.map((trade) => {
+              const eventDate = trade.event ? parseLocalDate(trade.event.datetime) : null;
+              return (
+                <div
+                  key={trade.id}
+                  className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 hover:border-gray-300 dark:hover:border-gray-600 transition-all hover:shadow-md"
+                >
+                  {/* Add a header with status and sell button for pending trades */}
+                  {trade.status?.toLowerCase() === 'pending' && (
+                    <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100 dark:border-gray-700">
+                      <div className="flex items-center gap-2">
+                        <span className="px-3 py-1 rounded-full text-sm font-medium inline-flex items-center gap-1.5 bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                          </svg>
+                          Pending
+                        </span>
+                      </div>
+                      <button
+                        className="py-2 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow"
+                        onClick={() => {
+                          setSelectedTradeForSale(trade);
+                          setIsSellTradeModalOpen(true);
+                        }}
                       >
-                        <TeamLogo
-                          abbreviation={trade.selectedTeam === 'home' 
-                            ? trade.event.home_team.abbreviation 
-                            : trade.event.visitor_team.abbreviation}
-                          teamName={trade.selectedTeam === 'home'
-                            ? trade.event.home_team.full_name
-                            : trade.event.visitor_team.full_name}
-                          sport={trade.event?.sport}
-                          teamId={trade.selectedTeam === 'home'
-                            ? trade.event?.home_team?.id
-                            : trade.event?.visitor_team?.id}
-                        />
-                      </div>
-                    )}
-                    <div>
-                      <h3 className="text-lg font-semibold">
-                        {trade.event
-                          ? (trade.selectedTeam === 'home'
-                            ? trade.event.home_team.full_name
-                            : trade.event.visitor_team.full_name)
-                          : 'Unknown Team'}
-                      </h3>
-                      {trade.event && (
-                        <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-                          vs {trade.selectedTeam === 'home'
-                            ? trade.event.visitor_team.full_name
-                            : trade.event.home_team.full_name}
-                        </p>
-                      )}
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Sell Trade
+                      </button>
                     </div>
-                  </div>
-
-                  {/* Dates */}
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="text-gray-500 dark:text-gray-400">Trade placed</p>
-                      <p className="mt-1 font-medium">
-                        {trade.createdAt 
-                          ? (typeof trade.createdAt.toDate === 'function' 
-                              // Handle Firestore Timestamp
-                              ? formatFullDateTime(trade.createdAt.toDate())
-                              // Handle serialized timestamp format (seconds + nanoseconds)
-                              : trade.createdAt.seconds 
-                                ? formatFullDateTime(new Date(trade.createdAt.seconds * 1000))
-                                // Handle ISO string
-                                : typeof trade.createdAt === 'string' 
-                                  ? formatFullDateTime(new Date(trade.createdAt))
-                                  // Last resort - just show something
-                                  : 'Date available')
-                          : 'N/A'}
-                      </p> 
-                    </div>
-                    {eventDate && (
-                      <div>
-                        <p className="text-gray-500 dark:text-gray-400">Event date</p>
-                        <p className="mt-1 font-medium">{formatFullDateTime(eventDate)}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Bet Details */}
-                <div className="flex flex-col gap-3 min-w-[200px] bg-gray-50 dark:bg-gray-700/30 p-4 rounded-lg">
-                  <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Bet Amount</p>
-                    <p className="text-lg font-semibold mt-1">{formatCurrency(trade.amount)}</p>
-                  </div>
+                  )}
                   
-                  {trade.currentValue !== undefined && trade.currentValue !== null && trade.status?.toLowerCase() === 'pending' && (
-                    <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Current Value</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <p className={`text-lg font-semibold ${
-                          trade.currentValue > trade.amount 
-                            ? 'text-green-600 dark:text-green-400' 
-                            : trade.currentValue < trade.amount 
-                              ? 'text-red-600 dark:text-red-400' 
-                              : 'text-gray-700 dark:text-gray-300'
-                        }`}>
-                          {formatCurrency(trade.currentValue)}
-                        </p>
-                        
-                        {trade.amount > 0 && (
-                          <div className={`flex items-center text-sm font-medium ${
-                            trade.currentValue > trade.amount 
-                              ? 'text-green-600 dark:text-green-400' 
-                              : trade.currentValue < trade.amount 
-                                ? 'text-red-600 dark:text-red-400' 
-                                : 'text-gray-500 dark:text-gray-400'
-                          }`}>
-                            {trade.currentValue > trade.amount ? (
-                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                              </svg>
-                            ) : trade.currentValue < trade.amount ? (
-                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                              </svg>
-                            ) : null}
-                            {((trade.currentValue / trade.amount - 1) * 100).toFixed(2)}%
+                  {/* Status badge for non-pending trades */}
+                  {trade.status?.toLowerCase() !== 'pending' && (
+                    <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-100 dark:border-gray-700">
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium inline-flex items-center gap-1.5 ${ 
+                        trade.status?.toLowerCase() === 'won'
+                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                          : trade.status?.toLowerCase() === 'lost'
+                          ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                          : trade.status?.toLowerCase() === 'sold'
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                          : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300' // Default/Unknown
+                      }`}>
+                        {trade.status?.toLowerCase() === 'won' && (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        )}
+                        {trade.status?.toLowerCase() === 'lost' && (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        )}
+                        {trade.status?.toLowerCase() === 'sold' && (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        )}
+                        {trade.status ? trade.status.charAt(0).toUpperCase() + trade.status.slice(1) : 'Unknown'}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col md:flex-row md:items-center gap-6">
+                    {/* Team and Event Info */}
+                    <div className="flex-grow space-y-4">
+                      <div className="flex items-center gap-4">
+                        {trade.event && (
+                          <div 
+                            className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg cursor-pointer"
+                            onClick={() => trade.event && setSelectedEvent(trade.event)}
+                          >
+                            <TeamLogo
+                              abbreviation={trade.selectedTeam === 'home' 
+                                ? trade.event.home_team.abbreviation 
+                                : trade.event.visitor_team.abbreviation}
+                              teamName={trade.selectedTeam === 'home'
+                                ? trade.event.home_team.full_name
+                                : trade.event.visitor_team.full_name}
+                              sport={trade.event?.sport}
+                              teamId={trade.selectedTeam === 'home'
+                                ? trade.event?.home_team?.id
+                                : trade.event?.visitor_team?.id}
+                            />
+                          </div>
+                        )}
+                        <div>
+                          <h3 className="text-lg font-semibold">
+                            {trade.event
+                              ? (trade.selectedTeam === 'home'
+                                ? trade.event.home_team.full_name
+                                : trade.event.visitor_team.full_name)
+                              : 'Unknown Team'}
+                          </h3>
+                          {trade.event && (
+                            <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                              vs {trade.selectedTeam === 'home'
+                                ? trade.event.visitor_team.full_name
+                                : trade.event.home_team.full_name}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Dates */}
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <p className="text-gray-500 dark:text-gray-400">Trade placed</p>
+                          <p className="mt-1 font-medium">
+                            {trade.createdAt 
+                              ? (typeof trade.createdAt.toDate === 'function' 
+                                  // Handle Firestore Timestamp
+                                  ? formatFullDateTime(trade.createdAt.toDate())
+                                  // Handle serialized timestamp format (seconds + nanoseconds)
+                                  : trade.createdAt.seconds 
+                                    ? formatFullDateTime(new Date(trade.createdAt.seconds * 1000))
+                                    // Handle ISO string
+                                    : typeof trade.createdAt === 'string' 
+                                      ? formatFullDateTime(new Date(trade.createdAt))
+                                      // Last resort - just show something
+                                      : 'Date available')
+                              : 'N/A'}
+                          </p> 
+                        </div>
+                        {eventDate && (
+                          <div>
+                            <p className="text-gray-500 dark:text-gray-400">Event date</p>
+                            <p className="mt-1 font-medium">{formatFullDateTime(eventDate)}</p>
                           </div>
                         )}
                       </div>
                     </div>
-                  )}
-                  
-                  <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Potential Payout</p>
-                    <p className="text-lg font-semibold text-green-600 dark:text-green-400 mt-1">
-                      {formatCurrency(trade.expectedPayout)}
-                    </p>
+
+                    {/* Bet Details */}
+                    <div className="flex flex-col gap-3 min-w-[200px] bg-gray-50 dark:bg-gray-700/30 p-4 rounded-lg">
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">Bet Amount</p>
+                        <p className="text-lg font-semibold mt-1">{formatCurrency(trade.amount)}</p>
+                      </div>
+                      
+                      {trade.currentValue !== undefined && trade.currentValue !== null && trade.status?.toLowerCase() === 'pending' && (
+                        <div>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Current Value</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className={`text-lg font-semibold ${
+                              trade.currentValue > trade.amount 
+                                ? 'text-green-600 dark:text-green-400' 
+                                : trade.currentValue < trade.amount 
+                                  ? 'text-red-600 dark:text-red-400' 
+                                  : 'text-gray-700 dark:text-gray-300'
+                            }`}>
+                              {formatCurrency(trade.currentValue)}
+                            </p>
+                            
+                            {trade.amount > 0 && (
+                              <div className={`flex items-center text-sm font-medium ${
+                                trade.currentValue > trade.amount 
+                                  ? 'text-green-600 dark:text-green-400' 
+                                  : trade.currentValue < trade.amount 
+                                    ? 'text-red-600 dark:text-red-400' 
+                                    : 'text-gray-500 dark:text-gray-400'
+                              }`}>
+                                {trade.currentValue > trade.amount ? (
+                                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                  </svg>
+                                ) : trade.currentValue < trade.amount ? (
+                                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                                  </svg>
+                                ) : null}
+                                {((trade.currentValue / trade.amount - 1) * 100).toFixed(2)}%
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">Potential Payout</p>
+                        <p className="text-lg font-semibold text-green-600 dark:text-green-400 mt-1">
+                          {formatCurrency(trade.expectedPayout)}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   };
@@ -1419,6 +1729,16 @@ export default function ProfilePage() {
           onClose={() => setIsAddFundsModalOpen(false)}
           onAddFunds={handleAddFunds}
           currentBalance={walletBalance}
+        />
+      )}
+      
+      {/* Sell Trade Modal */}
+      {selectedTradeForSale && (
+        <SellTradeModal
+          isOpen={isSellTradeModalOpen}
+          onClose={() => setIsSellTradeModalOpen(false)}
+          trade={selectedTradeForSale}
+          onConfirm={handleSellTrade}
         />
       )}
     </div>
