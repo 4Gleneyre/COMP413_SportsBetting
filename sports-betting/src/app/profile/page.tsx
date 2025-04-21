@@ -212,6 +212,19 @@ function parseLocalDate(dateString: string) {
   return date;
 }
 
+interface ProfileUserData {
+  photoURL?: string;
+  username?: string;
+  // Add trades property if needed, although trades state is handled separately
+}
+
+// Define the structure for the data returned by the Cloud Function
+interface UserProfileInfoResponse {
+  photoURL: string | null;
+  username: string | null;
+  trades: Trade[]; // Use the existing Trade interface
+}
+
 export default function ProfilePage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -235,6 +248,11 @@ export default function ProfilePage() {
   const [mediaType, setMediaType] = useState<'image' | 'video' | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // New state variables for viewing other user profiles
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  const [profileUsername, setProfileUsername] = useState<string | null>(null);
+  const [isOwnProfile, setIsOwnProfile] = useState(true);
+  const [profileUserData, setProfileUserData] = useState<ProfileUserData | null>(null);
 
   /**
    * Fetch event by ID from Firestore
@@ -264,15 +282,26 @@ export default function ProfilePage() {
 
   // Handle event ID from URL and custom events
   useEffect(() => {
-    // Check URL for event parameter on page load
+    // Check URL for event parameter and user parameters on page load
     const urlParams = new URLSearchParams(window.location.search);
     const eventId = urlParams.get('event');
+    const urlUserId = urlParams.get('userId');
+    const urlUsername = urlParams.get('username');
+    
+    // Set profile user data from URL parameters
+    if (urlUserId) {
+      setProfileUserId(urlUserId);
+      if (urlUsername) {
+        setProfileUsername(urlUsername);
+      }
+    }
     
     if (eventId) {
       fetchEventById(eventId);
       
       // Clean up the URL without reloading the page
-      const newUrl = window.location.pathname;
+      const newUrl = window.location.pathname + 
+        (urlUserId ? `?userId=${urlUserId}${urlUsername ? `&username=${urlUsername}` : ''}` : '');
       window.history.replaceState({}, document.title, newUrl);
     }
     
@@ -296,117 +325,170 @@ export default function ProfilePage() {
     };
   }, []);
 
+  // Determine if this is the logged-in user's profile
   useEffect(() => {
-    async function fetchUserData() {
-      if (!user) {
-        console.log('No user found, skipping data fetch');
-        setLoading(false);
+    if (user && profileUserId) {
+      setIsOwnProfile(user.uid === profileUserId);
+    } else {
+      setIsOwnProfile(true); // Default to own profile if no profile user ID is set
+    }
+  }, [user, profileUserId]);
+
+  // Fetch profile user data if viewing another user's profile
+  useEffect(() => {
+    async function fetchProfileUserData() {
+      if (!profileUserId || (user && profileUserId === user.uid)) {
+        // If no profile user ID or if it's the current user, use current user data
+        setIsOwnProfile(true);
         return;
       }
 
       try {
-        console.log('Fetching user data for:', user.uid);
+        console.log('Fetching profile data for user:', profileUserId);
         
-        // Get user document
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        // Call the updated Cloud Function
+        const getUserProfileInfo = httpsCallable(functions, 'getUserProfileInfo');
+        const result = await getUserProfileInfo({ userId: profileUserId });
+        
+        // Access the response data using the defined interface
+        const profileData = result.data as UserProfileInfoResponse;
+        
+        setProfileUserData({
+          photoURL: profileData.photoURL || undefined, // Convert null to undefined
+          username: profileData.username || profileUsername || 'User'
+        });
+        
+        // Set profile username specifically
+        setProfileUsername(profileData.username || profileUsername || 'User');
+
+        // Set the trades state with the data from the Cloud Function
+        setTrades(profileData.trades || []); 
+        setIsOwnProfile(false); // We fetched data, so it's not the own profile
+
+      } catch (error) {
+        console.error('Error fetching profile user data:', error);
+      }
+    }
+
+    fetchProfileUserData();
+  }, [profileUserId, profileUsername, user, functions]); // Removed fetchUserData dependency
+
+  useEffect(() => {
+    async function fetchUserData() {
+      // Only fetch wallet/pnl/trades if it's the user's own profile and user is logged in
+      if (!user || !isOwnProfile) {
+        console.log('Not own profile or user not logged in, skipping detailed user data fetch');
+        if (!profileUserId) setLoading(false); // Ensure loading stops if no profileId was ever set
+        return;
+      }
+      
+      const targetUserId = user.uid;
+
+      try {
+        console.log('Fetching own user data for:', targetUserId);
+        setLoading(true); // Start loading for own profile data
+
+        // Get user document for wallet balance and PnL
+        const userDoc = await getDoc(doc(db, 'users', targetUserId));
         if (!userDoc.exists()) {
-          console.log('User document not found in Firestore');
+          console.log('Own user document not found in Firestore');
           setLoading(false);
           return;
         }
 
         const userData = userDoc.data() as UserData;
+        
+        // Set wallet balance and pnl only for own profile
         setWalletBalance(userData.walletBalance || 0);
         setLifetimePnl(userData.lifetimePnl ?? null);
+
+        // Fetch trades separately for own profile using the function to ensure consistency
+        // (or rely on Firestore listener if you prefer real-time updates for own profile)
+        // For simplicity here, let's call the function again for own profile too
+        // Alternatively, could set up a listener only for own profile trades
+        try {
+          const getUserProfileInfo = httpsCallable(functions, 'getUserProfileInfo');
+          const result = await getUserProfileInfo({ userId: targetUserId });
+          const profileData = result.data as UserProfileInfoResponse;
+          setTrades(profileData.trades || []);
+        } catch (tradeError) {
+          console.error('Error fetching trades for own profile:', tradeError);
+          setTrades([]); // Clear trades on error
+        }
         
+        /* 
+        // --- OLD TRADE FETCHING LOGIC (REMOVED) --- 
         const userTrades = userData.trades || [];
         console.log('Found trade IDs:', userTrades);
         
         // Fetch all trades
         const tradesData: Trade[] = [];
-        for (const tradeId of userTrades) {
-  console.log('Fetching trade:', tradeId);
-  const tradeDoc = await getDoc(doc(db, 'trades', tradeId));
+        if (userTrades.length > 0) {
+          const tradesQuery = query(collection(db, 'trades'), where(documentId(), 'in', userTrades));
+          const tradeDocs = await getDocs(tradesQuery);
 
-  if (tradeDoc.exists()) {
-    const tradeData = tradeDoc.data() as Omit<Trade, 'id'>;
-    console.log('Trade data found:', tradeData);
+          const eventPromises = tradeDocs.docs.map(async (tradeDoc) => {
+            const tradeData = { id: tradeDoc.id, ...tradeDoc.data() } as Trade;
+            try {
+              const eventDoc = await getDoc(doc(db, 'events', tradeData.eventId));
+              if (eventDoc.exists()) {
+                const eventData = eventDoc.data() as Event;
+                eventData.id = eventDoc.id;
+                // Add datetime property
+                if (eventData.date && !eventData.datetime) {
+                  eventData.datetime = eventData.time
+                    ? `${eventData.date}T${eventData.time}`
+                    : `${eventData.date}T00:00:00`;
+                }
+                tradeData.event = eventData;
+              }
+            } catch (eventError) {
+              console.error('Error fetching event for trade:', tradeData.id, eventError);
+            }
+            return tradeData;
+          });
 
-    // Fetch associated event (initial fetch)
-    let eventData: Event | undefined = undefined;
-    try {
-      const eventDoc = await getDoc(doc(db, 'events', tradeData.eventId));
-      if (eventDoc.exists()) {
-        eventData = eventDoc.data() as Event;
-        eventData.id = eventDoc.id;
-        // Add datetime property to event data by combining date and time
-        if (eventData.date && !eventData.datetime) {
-          eventData.datetime = eventData.time
-            ? `${eventData.date}T${eventData.time}`
-            : `${eventData.date}T00:00:00`;
+          const resolvedTrades = await Promise.all(eventPromises);
+          // Sort trades by createdAt timestamp, newest first
+          resolvedTrades.sort((a, b) => {
+            const timeA = a.createdAt?.toMillis() || 0;
+            const timeB = b.createdAt?.toMillis() || 0;
+            return timeB - timeA;
+          });
+          tradesData.push(...resolvedTrades);
         }
-      } else {
-        console.log('No event data found for trade');
-      }
-    } catch (err) {
-      console.error('Error fetching event data:', err);
-    }
 
-    // Listen for real-time updates to this event
-    const unsub = onSnapshot(doc(db, 'events', tradeData.eventId), (eventDoc) => {
-      if (eventDoc.exists()) {
-        const updatedEventData = eventDoc.data() as Event;
-        updatedEventData.id = eventDoc.id;
-        // Add datetime property to event data by combining date and time
-        if (updatedEventData.date && !updatedEventData.datetime) {
-          updatedEventData.datetime = updatedEventData.time
-            ? `${updatedEventData.date}T${updatedEventData.time}`
-            : `${updatedEventData.date}T00:00:00`;
-        }
-        setTrades(prevTrades => prevTrades.map(t => t.id === tradeDoc.id ? { ...t, event: updatedEventData } : t));
-      }
-    });
-    // Store unsub if you need to clean up listeners later
-    // (optional: push to an array for cleanup on component unmount)
-
-    tradesData.push({
-      id: tradeDoc.id,
-      ...tradeData,
-      createdAt: tradeData.createdAt,
-      event: eventData
-    });
-  } else {
-    console.log('Trade document not found:', tradeId);
-  }
-}
-
-        console.log('Final trades data:', tradesData);
-        // Sort trades by date (newest first)
-        tradesData.sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime());
         setTrades(tradesData);
+        // --- END OF OLD TRADE FETCHING LOGIC --- 
+        */
+
       } catch (error) {
-        console.error('Error fetching user data:', error);
+        console.error('Error fetching own user data:', error);
       } finally {
-        setLoading(false);
+        setLoading(false); 
       }
     }
 
     fetchUserData();
-  }, [user]);
+  // Depend on user and isOwnProfile. isOwnProfile changes when profileUserId or user changes.
+  }, [user, isOwnProfile, functions]); 
 
   // Fetch user posts
   useEffect(() => {
     async function fetchUserPosts() {
-      if (!user) {
-        console.log('No user found, skipping posts fetch');
+      // Determine which user ID to use for posts fetching
+      const targetUserId = profileUserId || (user ? user.uid : null);
+      
+      if (!targetUserId) {
+        console.log('No user ID found, skipping posts fetch');
         setLoadingPosts(false);
         return;
       }
 
       try {
-        console.log('Fetching posts for user:', user.uid);
+        console.log('Fetching posts for user:', targetUserId);
         const postsRef = collection(db, 'posts');
-        const q = query(postsRef, where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
+        const q = query(postsRef, where('userId', '==', targetUserId), orderBy('createdAt', 'desc'));
         console.log('Posts query:', q);
         const querySnapshot = await getDocs(q);
         
@@ -440,7 +522,7 @@ export default function ProfilePage() {
     }
 
     fetchUserPosts();
-  }, [user]);
+  }, [user, profileUserId]);
 
   // Function to fetch events for tagging
   const fetchEventsForTagging = async () => {
@@ -665,7 +747,7 @@ export default function ProfilePage() {
   };
 
   // Add debug logs in the render logic
-  if (!user) {
+  if (!user && !profileUserId) {
     console.log('Rendering: No user view');
     return (
       <div className="max-w-3xl mx-auto py-8 px-4">
@@ -683,7 +765,7 @@ export default function ProfilePage() {
     console.log('Rendering: Loading view');
     return (
       <div className="max-w-3xl mx-auto py-8 px-4">
-        <h2 className="text-2xl font-bold mb-8">Your Profile</h2>
+        <h2 className="text-2xl font-bold mb-8">User Profile</h2>
         <div className="animate-pulse space-y-4">
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-24 bg-gray-200 dark:bg-gray-700 rounded-xl" />
@@ -695,88 +777,258 @@ export default function ProfilePage() {
 
   console.log('Rendering: Main view, trades length:', trades.length);
   
+  // Determine which user data to display
+  const displayName = user?.displayName;
+    
+  const userPhotoURL = !isOwnProfile 
+    ? profileUserData?.photoURL 
+    : user?.photoURL;
+    
+  const displayUsername = !isOwnProfile 
+    ? profileUsername || (profileUserData?.username) || 'User'
+    : username || user?.email;
+  
+  const renderTradeHistory = () => {
+    if (loading) {
+      return <div className="text-center p-4">Loading trade history...</div>;
+    }
+
+    if (trades.length === 0) {
+      return (
+        <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
+          <p className="text-gray-500 dark:text-gray-400">
+            No trades placed yet.
+          </p>
+        </div>
+      );
+    }
+
+    console.log('Rendering: Trade History tab, trades:', trades);
+
+    return (
+      <div className="space-y-6">
+        {trades.map((trade) => {
+          const eventDate = trade.event ? parseLocalDate(trade.event.datetime) : null;
+          return (
+            <div
+              key={trade.id}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 hover:border-gray-300 dark:hover:border-gray-600 transition-all hover:shadow-md"
+            >
+              <div className="flex flex-col md:flex-row md:items-center gap-6">
+                {/* Team and Event Info */}
+                <div className="flex-grow space-y-4">
+                  <div className="flex items-center gap-4">
+                    {trade.event && (
+                      <div 
+                        className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg cursor-pointer"
+                        onClick={() => trade.event && setSelectedEvent(trade.event)}
+                      >
+                        <TeamLogo
+                          abbreviation={trade.selectedTeam === 'home' 
+                            ? trade.event.home_team.abbreviation 
+                            : trade.event.visitor_team.abbreviation}
+                          teamName={trade.selectedTeam === 'home'
+                            ? trade.event.home_team.full_name
+                            : trade.event.visitor_team.full_name}
+                          sport={trade.event?.sport}
+                          teamId={trade.selectedTeam === 'home'
+                            ? trade.event?.home_team?.id
+                            : trade.event?.visitor_team?.id}
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <h3 className="text-lg font-semibold">
+                        {trade.event
+                          ? (trade.selectedTeam === 'home'
+                            ? trade.event.home_team.full_name
+                            : trade.event.visitor_team.full_name)
+                          : 'Unknown Team'}
+                      </h3>
+                      {trade.event && (
+                        <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                          vs {trade.selectedTeam === 'home'
+                            ? trade.event.visitor_team.full_name
+                            : trade.event.home_team.full_name}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Status Badge */}
+                  <div className="flex items-center gap-3">
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium inline-flex items-center gap-1.5 ${ 
+                      // Handle different statuses including 'sold'
+                      trade.status?.toLowerCase() === 'pending' 
+                        ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                        : trade.status?.toLowerCase() === 'won'
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        : trade.status?.toLowerCase() === 'lost'
+                        ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                        : trade.status?.toLowerCase() === 'sold'
+                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                        : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300' // Default/Unknown
+                    }`}>
+                      {trade.status?.toLowerCase() === 'pending' && (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      )}
+                      {trade.status?.toLowerCase() === 'won' && (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      )}
+                      {trade.status?.toLowerCase() === 'lost' && (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      )}
+                       {/* Consider adding an icon for 'sold' if desired */}
+                      {trade.status ? trade.status.charAt(0).toUpperCase() + trade.status.slice(1) : 'Unknown'}
+                    </span>
+                  </div>
+
+                  {/* Dates */}
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-gray-500 dark:text-gray-400">Trade placed</p>
+                      <p className="mt-1 font-medium">
+                        {trade.createdAt 
+                          ? (typeof trade.createdAt.toDate === 'function' 
+                              // Handle Firestore Timestamp
+                              ? formatFullDateTime(trade.createdAt.toDate())
+                              // Handle serialized timestamp format (seconds + nanoseconds)
+                              : trade.createdAt.seconds 
+                                ? formatFullDateTime(new Date(trade.createdAt.seconds * 1000))
+                                // Handle ISO string
+                                : typeof trade.createdAt === 'string' 
+                                  ? formatFullDateTime(new Date(trade.createdAt))
+                                  // Last resort - just show something
+                                  : 'Date available')
+                          : 'N/A'}
+                      </p> 
+                    </div>
+                    {eventDate && (
+                      <div>
+                        <p className="text-gray-500 dark:text-gray-400">Event date</p>
+                        <p className="mt-1 font-medium">{formatFullDateTime(eventDate)}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Bet Details */}
+                <div className="flex flex-col gap-3 min-w-[200px] bg-gray-50 dark:bg-gray-700/30 p-4 rounded-lg">
+                  <div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Bet Amount</p>
+                    <p className="text-lg font-semibold mt-1">{formatCurrency(trade.amount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Potential Payout</p>
+                    <p className="text-lg font-semibold text-green-600 dark:text-green-400 mt-1">
+                      {formatCurrency(trade.expectedPayout)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-4">Your Profile</h2>
-
         <div className="flex items-start justify-between gap-6">
           <div>
             <div className="flex items-center gap-4">
-              {user.photoURL && (
+              {userPhotoURL && (
                 <Image
-                  src={user.photoURL}
-                  alt={user.displayName || 'User'}
+                  src={userPhotoURL}
+                  alt={displayName || 'User'}
                   width={64}
                   height={64}
                   className="rounded-full"
                 />
               )}
               <div>
-                <p className="text-lg font-semibold">{user.displayName}</p>
-                <p className="text-gray-500 dark:text-gray-400">@{username || user.email}</p>
+                {isOwnProfile ? (
+                  <>
+                    <p className="text-lg font-semibold">{displayName}</p>
+                    <p className="text-gray-500 dark:text-gray-400">@{displayUsername}</p>
+                  </>
+                ) : (
+                  <p className="text-lg font-semibold">@{displayUsername}</p>
+                )}
               </div>
             </div>
             
-            <div className="mt-4 flex gap-4">
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-                <p className="text-sm font-medium">Trade Record</p>
-                <p className="mt-1">
-                  <span className="text-green-600 dark:text-green-400 font-bold text-lg">
-                    {trades.filter(t => t.status === 'Won').length}W
-                  </span>
-                  <span className="mx-2 text-gray-400">-</span>
-                  <span className="text-red-600 dark:text-red-400 font-bold text-lg">
-                    {trades.filter(t => t.status === 'Lost').length}L
-                  </span>
-                </p>
-              </div>
+            {isOwnProfile && (
+              <div className="mt-4 flex gap-4">
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                  <p className="text-sm font-medium">Trade Record</p>
+                  <p className="mt-1">
+                    <span className="text-green-600 dark:text-green-400 font-bold text-lg">
+                      {trades.filter(t => t.status === 'won').length}W
+                    </span>
+                    <span className="mx-2 text-gray-400">-</span>
+                    <span className="text-red-600 dark:text-red-400 font-bold text-lg">
+                      {trades.filter(t => t.status === 'lost').length}L
+                    </span>
+                  </p>
+                </div>
 
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-                <p className="text-sm font-medium">Lifetime P&L</p>
-                <p className="mt-1">
-                  {(() => {
-                    const pnl = lifetimePnl !== null ? lifetimePnl :
-                      trades.reduce((total, trade) => {
-                        if (trade.status === 'Won') {
-                          return total + (trade.expectedPayout - trade.amount);
-                        } else if (trade.status === 'Lost') {
-                          return total - trade.amount;
-                        }
-                        return total;
-                      }, 0);
-                    
-                    return (
-                      <span className={`font-bold text-lg ${
-                        pnl > 0 ? 'text-green-600 dark:text-green-400'
-                        : pnl === 0 ? 'text-blue-600 dark:text-blue-400'
-                        : 'text-red-600 dark:text-red-400'
-                      }`}>
-                        {formatCurrency(pnl)}
-                      </span>
-                    );
-                  })()}
-                </p>
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                  <p className="text-sm font-medium">Lifetime P&L</p>
+                  <p className="mt-1">
+                    {(() => {
+                      const pnl = lifetimePnl !== null ? lifetimePnl :
+                        trades.reduce((total, trade) => {
+                          if (trade.status === 'won') {
+                            return total + (trade.expectedPayout - trade.amount);
+                          } else if (trade.status === 'lost') {
+                            return total - trade.amount;
+                          }
+                          return total;
+                        }, 0);
+                      
+                      return (
+                        <span className={`font-bold text-lg ${
+                          pnl > 0 ? 'text-green-600 dark:text-green-400'
+                          : pnl === 0 ? 'text-blue-600 dark:text-blue-400'
+                          : 'text-red-600 dark:text-red-400'
+                        }`}>
+                          {formatCurrency(pnl)}
+                        </span>
+                      );
+                    })()}
+                  </p>
+                </div>
               </div>
+            )}
+          </div>
+
+          {isOwnProfile && (
+            <div className="bg-gradient-to-r from-green-500 to-emerald-600 dark:from-green-600 dark:to-emerald-700 py-4 px-6 rounded-xl shadow-lg min-w-[240px]">
+              <p className="text-sm text-green-50 dark:text-green-100">Available Balance</p>
+              <p className="text-3xl font-bold text-white mt-1">
+                {formatCurrency(walletBalance)}
+              </p>
+              <button
+                onClick={() => setIsAddFundsModalOpen(true)}
+                className="mt-3 w-full px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm transition-colors"
+              >
+                Add Funds
+              </button>
             </div>
-          </div>
-
-          <div className="bg-gradient-to-r from-green-500 to-emerald-600 dark:from-green-600 dark:to-emerald-700 py-4 px-6 rounded-xl shadow-lg min-w-[240px]">
-            <p className="text-sm text-green-50 dark:text-green-100">Available Balance</p>
-            <p className="text-3xl font-bold text-white mt-1">
-              {formatCurrency(walletBalance)}
-            </p>
-            <button
-              onClick={() => setIsAddFundsModalOpen(true)}
-              className="mt-3 w-full px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm transition-colors"
-            >
-              Add Funds
-            </button>
-          </div>
+          )}
         </div>
       </div>
 
-      {/* Apple-style tabs */}
+      {/* Apple-style tabs - only show trade history tab for own profile */}
       <div className="mb-6">
         <div className="flex justify-center border-b border-gray-200 dark:border-gray-700">
           <button
@@ -789,128 +1041,132 @@ export default function ProfilePage() {
           >
             Posts
           </button>
-          <button
-            onClick={() => setActiveTab('trades')}
-            className={`py-3 px-5 text-base font-medium border-b-2 transition-colors ${
-              activeTab === 'trades'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-            }`}
-          >
-            Trade History
-          </button>
+          {(trades.length > 0 || loading) && (
+            <button
+              onClick={() => setActiveTab('trades')}
+              className={`py-3 px-5 text-base font-medium border-b-2 transition-colors ${
+                activeTab === 'trades'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              Trade History
+            </button>
+          )}
         </div>
       </div>
 
       {/* Posts Tab */}
       {activeTab === 'posts' && (
         <div className="space-y-6">
-          {/* Post creation form */}
-          <div className="mb-6 bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-            <form onSubmit={handleSubmitPost}>
-              <div className="mb-3">
-                <textarea
-                  value={newPostContent}
-                  onChange={(e) => setNewPostContent(e.target.value)}
-                  placeholder="Share your thoughts on upcoming games..."
-                  className="w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={3}
-                ></textarea>
-              </div>
-              
-              {/* Media Preview */}
-              {mediaPreview && (
-                <div className="relative mb-3 border rounded-lg overflow-hidden">
-                  {mediaType === 'image' ? (
-                    <img 
-                      src={mediaPreview} 
-                      alt="Post image" 
-                      className="w-full max-h-80 object-contain"
-                    />
-                  ) : mediaType === 'video' ? (
-                    <video 
-                      src={mediaPreview} 
-                      controls 
-                      className="w-full max-h-80"
-                    />
-                  ) : null}
-                  
-                  {/* Upload progress indicator */}
-                  {isSubmittingPost && uploadProgress > 0 && uploadProgress < 100 && (
-                    <div className="absolute bottom-0 left-0 right-0 bg-gray-200 h-1">
-                      <div 
-                        className="bg-blue-500 h-1" 
-                        style={{ width: `${uploadProgress}%` }}
-                      ></div>
-                    </div>
-                  )}
-                  
-                  {/* Remove button */}
-                  <button
-                    type="button"
-                    onClick={handleRemoveMedia}
-                    className="absolute top-2 right-2 bg-gray-900/70 text-white rounded-full p-1 hover:bg-gray-900"
-                    aria-label="Remove media"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                </div>
-              )}
-              
-              <div className="flex justify-between items-center">
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={toggleEventSelector}
-                    className={`flex items-center px-3 py-1.5 text-sm rounded-lg border ${
-                      showEventSelector || selectedEventIds.length > 0
-                        ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
-                        : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600'
-                    }`}
-                  >
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                    {selectedEventIds.length > 0 
-                      ? `${selectedEventIds.length} Event${selectedEventIds.length > 1 ? 's' : ''} Tagged` 
-                      : 'Tag Events'}
-                  </button>
-                  
-                  {/* Media upload button */}
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center px-3 py-1.5 text-sm rounded-lg border bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600"
-                  >
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    {mediaFile ? 'Change Media' : 'Add Media'}
-                  </button>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileSelect}
-                    accept="image/*,video/*"
-                    className="hidden"
-                  />
+          {/* Post creation form - only show for own profile */}
+          {isOwnProfile && (
+            <div className="mb-6 bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+              <form onSubmit={handleSubmitPost}>
+                <div className="mb-3">
+                  <textarea
+                    value={newPostContent}
+                    onChange={(e) => setNewPostContent(e.target.value)}
+                    placeholder="Share your thoughts on upcoming games..."
+                    className="w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    rows={3}
+                  ></textarea>
                 </div>
                 
-                <button
-                  type="submit"
-                  disabled={!newPostContent.trim() || isSubmittingPost}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSubmittingPost ? 'Posting...' : 'Post'}
-                </button>
-              </div>
-            </form>
-          </div>
+                {/* Media Preview */}
+                {mediaPreview && (
+                  <div className="relative mb-3 border rounded-lg overflow-hidden">
+                    {mediaType === 'image' ? (
+                      <img 
+                        src={mediaPreview} 
+                        alt="Post image" 
+                        className="w-full max-h-80 object-contain"
+                      />
+                    ) : mediaType === 'video' ? (
+                      <video 
+                        src={mediaPreview} 
+                        controls 
+                        className="w-full max-h-80"
+                      />
+                    ) : null}
+                    
+                    {/* Upload progress indicator */}
+                    {isSubmittingPost && uploadProgress > 0 && uploadProgress < 100 && (
+                      <div className="absolute bottom-0 left-0 right-0 bg-gray-200 h-1">
+                        <div 
+                          className="bg-blue-500 h-1" 
+                          style={{ width: `${uploadProgress}%` }}
+                        ></div>
+                      </div>
+                    )}
+                    
+                    {/* Remove button */}
+                    <button
+                      type="button"
+                      onClick={handleRemoveMedia}
+                      className="absolute top-2 right-2 bg-gray-900/70 text-white rounded-full p-1 hover:bg-gray-900"
+                      aria-label="Remove media"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+                
+                <div className="flex justify-between items-center">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={toggleEventSelector}
+                      className={`flex items-center px-3 py-1.5 text-sm rounded-lg border ${
+                        showEventSelector || selectedEventIds.length > 0
+                          ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
+                          : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      {selectedEventIds.length > 0 
+                        ? `${selectedEventIds.length} Event${selectedEventIds.length > 1 ? 's' : ''} Tagged` 
+                        : 'Tag Events'}
+                    </button>
+                    
+                    {/* Media upload button */}
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center px-3 py-1.5 text-sm rounded-lg border bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600"
+                    >
+                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      {mediaFile ? 'Change Media' : 'Add Media'}
+                    </button>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileSelect}
+                      accept="image/*,video/*"
+                      className="hidden"
+                    />
+                  </div>
+                  
+                  <button
+                    type="submit"
+                    disabled={!newPostContent.trim() || isSubmittingPost}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmittingPost ? 'Posting...' : 'Post'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
 
           {/* Event selector */}
-          {showEventSelector && (
+          {showEventSelector && isOwnProfile && (
             <EventSelector
               selectedEventIds={selectedEventIds}
               toggleEventSelection={toggleEventSelection}
@@ -927,7 +1183,7 @@ export default function ProfilePage() {
           ) : posts.length === 0 ? (
             <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
               <p className="text-gray-500 dark:text-gray-400">
-                You haven't created any posts yet.
+                {isOwnProfile ? "You haven't created any posts yet." : "This user hasn't created any posts yet."}
               </p>
             </div>
           ) : (
@@ -953,130 +1209,16 @@ export default function ProfilePage() {
           {trades.length === 0 ? (
             <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
               <p className="text-gray-500 dark:text-gray-400">
-                You haven't placed any trades yet.
+                No trades yet.
               </p>
             </div>
           ) : (
             <div className="space-y-6">
-              {trades.map((trade) => {
-                const eventDate = trade.event ? parseLocalDate(trade.event.datetime) : null;
-                return (
-                  <div
-                    key={trade.id}
-                    className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 hover:border-gray-300 dark:hover:border-gray-600 transition-all hover:shadow-md"
-                  >
-                    <div className="flex flex-col md:flex-row md:items-center gap-6">
-                      {/* Team and Event Info */}
-                      <div className="flex-grow space-y-4">
-                        <div className="flex items-center gap-4">
-                          {trade.event && (
-                            <div 
-                              className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg cursor-pointer"
-                              onClick={() => trade.event && setSelectedEvent(trade.event)}
-                            >
-                              <TeamLogo
-                                abbreviation={trade.selectedTeam === 'home' 
-                                  ? trade.event.home_team.abbreviation 
-                                  : trade.event.visitor_team.abbreviation}
-                                teamName={trade.selectedTeam === 'home'
-                                  ? trade.event.home_team.full_name
-                                  : trade.event.visitor_team.full_name}
-                                sport={trade.event?.sport}
-                                teamId={trade.selectedTeam === 'home'
-                                  ? trade.event?.home_team?.id
-                                  : trade.event?.visitor_team?.id}
-                              />
-                            </div>
-                          )}
-                          <div>
-                            <h3 className="text-lg font-semibold">
-                              {trade.event
-                                ? (trade.selectedTeam === 'home'
-                                  ? trade.event.home_team.full_name
-                                  : trade.event.visitor_team.full_name)
-                                : 'Unknown Team'}
-                            </h3>
-                            {trade.event && (
-                              <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-                                vs {trade.selectedTeam === 'home'
-                                  ? trade.event.visitor_team.full_name
-                                  : trade.event.home_team.full_name}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Status Badge */}
-                        <div className="flex items-center gap-3">
-                          <span className={`px-3 py-1 rounded-full text-sm font-medium inline-flex items-center gap-1.5 ${
-                            trade.status === 'Pending' 
-                              ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                              : trade.status === 'Won'
-                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                              : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                          }`}>
-                            {trade.status === 'Pending' && (
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                            )}
-                            {trade.status === 'Won' && (
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                            )}
-                            {trade.status === 'Lost' && (
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                            )}
-                            {trade.status}
-                          </span>
-                        </div>
-
-                        {/* Dates */}
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <p className="text-gray-500 dark:text-gray-400">Trade placed</p>
-                            <p className="mt-1 font-medium">{formatFullDateTime(trade.createdAt.toDate())}</p>
-                          </div>
-                          {eventDate && (
-                            <div>
-                              <p className="text-gray-500 dark:text-gray-400">Event date</p>
-                              <p className="mt-1 font-medium">{formatFullDateTime(eventDate)}</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Bet Details */}
-                      <div className="flex flex-col gap-3 min-w-[200px] bg-gray-50 dark:bg-gray-700/30 p-4 rounded-lg">
-                        <div>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">Bet Amount</p>
-                          <p className="text-lg font-semibold mt-1">{formatCurrency(trade.amount)}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">Potential Payout</p>
-                          <p className="text-lg font-semibold text-green-600 dark:text-green-400 mt-1">
-                            {formatCurrency(trade.expectedPayout)}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {renderTradeHistory()}
             </div>
           )}
         </>
       )}
-
-      <AddFundsModal
-        isOpen={isAddFundsModalOpen}
-        onClose={() => setIsAddFundsModalOpen(false)}
-        onAddFunds={handleAddFunds}
-        currentBalance={walletBalance}
-      />
 
       {/* Game Info Modal */}
       {selectedEvent && (
@@ -1096,6 +1238,16 @@ export default function ProfilePage() {
           event={selectedBet.event}
           selectedTeam={selectedBet.team}
           onClose={() => setSelectedBet(null)}
+        />
+      )}
+      
+      {/* Add Funds Modal - only shown for own profile */}
+      {isOwnProfile && (
+        <AddFundsModal
+          isOpen={isAddFundsModalOpen}
+          onClose={() => setIsAddFundsModalOpen(false)}
+          onAddFunds={handleAddFunds}
+          currentBalance={walletBalance}
         />
       )}
     </div>

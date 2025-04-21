@@ -774,419 +774,111 @@ export const getLeaderboard = onCall(
   }
 );
 
-// --- Marketplace Logic: buyBet & sellBet ---
-
 /**
- * Allows a user to list a bet for sale
+ * Get a user's photoURL and username by their ID
+ * This function allows safe access to a user's public profile information
+ * without exposing other sensitive user data
  */
-export const sellBet = onCall({
-  region: "us-central1"
-}, async (request) => {
-  const { betId, salePrice } = request.data;
-  const auth = request.auth;
-  if (!auth) throw new HttpsError("unauthenticated", "Not signed in");
-  if (!betId || typeof salePrice !== "number") throw new HttpsError("invalid-argument", "Missing or invalid arguments");
-
-  const betRef = db.collection("trades").doc(betId);
-  const betSnap = await betRef.get();
-  if (!betSnap.exists) throw new HttpsError("not-found", "Bet not found");
-  const betData = betSnap.data();
-  if (!betData) throw new HttpsError("not-found", "Bet not found");
-  if (betData.userId !== auth.uid) throw new HttpsError("permission-denied", "You do not own this bet");
-  if (betData.forSale) throw new HttpsError("failed-precondition", "Bet already for sale");
-  if (betData.status && betData.status !== "Pending") throw new HttpsError("failed-precondition", "Bet is not pending");
-
-  await betRef.update({ forSale: true, salePrice });
-  return { success: true };
-});
-
-/**
- * Allows a user to buy a bet listed for sale
- */
-export const buyBet = onCall({
-  region: "us-central1"
-}, async (request) => {
-  const { betId } = request.data;
-  const auth = request.auth;
-  if (!auth) throw new HttpsError("unauthenticated", "Not signed in");
-  if (!betId) throw new HttpsError("invalid-argument", "Missing betId");
-
-  const betRef = db.collection("trades").doc(betId);
-  await db.runTransaction(async (transaction) => {
-    const betSnap = await transaction.get(betRef);
-    if (!betSnap.exists) throw new HttpsError("not-found", "Bet not found");
-    const betData = betSnap.data();
-    if (!betData) throw new HttpsError("not-found", "Bet not found");
-    if (!betData.forSale) throw new HttpsError("failed-precondition", "Bet not for sale");
-    if (betData.userId === auth.uid) throw new HttpsError("failed-precondition", "Cannot buy your own bet");
-    const salePrice = betData.salePrice;
-    if (typeof salePrice !== "number") throw new HttpsError("invalid-argument", "Invalid sale price");
-
-    const buyerRef = db.collection("users").doc(auth.uid);
-    const sellerRef = db.collection("users").doc(betData.userId);
-    const [buyerSnap, sellerSnap] = await Promise.all([
-      transaction.get(buyerRef),
-      transaction.get(sellerRef)
-    ]);
-    if (!buyerSnap.exists) throw new HttpsError("not-found", "Buyer not found");
-    if (!sellerSnap.exists) throw new HttpsError("not-found", "Seller not found");
-    const buyer = buyerSnap.data();
-    if (!buyer) throw new HttpsError("not-found", "Buyer not found");
-    const seller = sellerSnap.data();
-    if (!seller) throw new HttpsError("not-found", "Seller not found");
-    if ((buyer.walletBalance ?? 0) < salePrice) throw new HttpsError("failed-precondition", "Insufficient funds");
-
-    // Transfer bet
-    transaction.update(betRef, {
-      userId: auth.uid,
-      forSale: false,
-      salePrice: null
-    });
-    // Update wallets
-    transaction.update(buyerRef, {
-      walletBalance: (buyer.walletBalance ?? 0) - salePrice,
-      trades: admin.firestore.FieldValue.arrayUnion(betId)
-    });
-    transaction.update(sellerRef, {
-      walletBalance: (seller.walletBalance ?? 0) + salePrice,
-      trades: admin.firestore.FieldValue.arrayRemove(betId)
-    });
-  });
-  return { success: true };
-});
-// --- End Marketplace Logic ---
-
-// This is using a web search-enabled OpenAI model to analyze NBA games for betting purposes
-export const getGameBettingAnalysis = onCall(
+export const getUserProfileInfo = onCall(
   {
     region: "us-central1",
     maxInstances: 10,
   },
   async (request) => {
-    // Ensure the user is authenticated
-    if (!request.auth) {
-      throw new HttpsError("unauthenticated", "User must be authenticated.");
-    }
-
-    // Get the input parameters
-    const { homeTeam, awayTeam, gameDate } = request.data;
-
-    // Validate required input
-    if (!homeTeam || !awayTeam || !gameDate) {
-      throw new HttpsError(
-        "invalid-argument",
-        "Missing required fields: homeTeam, awayTeam, and gameDate are required."
-      );
-    }
-
     try {
-      // Initialize OpenAI client with API key
-      // Note: In production, you should store this key in Firebase environment secrets
-      const openai = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
-      });
-
-      // Call OpenAI with web search enabled
-      const response = await openai.responses.create({
-        model: "gpt-4o",
-        tools: [
-          { 
-            type: "web_search_preview",
-            search_context_size: "high" // Use high quality search for better analysis
-          }
-        ],
-        input: `Provide a detailed sports betting analysis for the NBA game between ${homeTeam} and ${awayTeam} scheduled for ${gameDate}. 
-                Include the following:
-                1. Recent team performance and trends
-                2. Key player stats and any injury updates
-                3. Head-to-head history between these teams
-                4. Current betting odds (spread, over/under, moneyline)
-                5. Expert opinions and predictions
-                6. Relevant statistical trends that might impact betting decisions
-                
-                Format this information in a clear, organized manner for someone making a betting decision.
-                Include citations to your sources.`,
-        tool_choice: { type: "web_search_preview" }, // Force web search for consistent results
-        temperature: 0.2, // Lower temperature for more factual responses
-      });
-
-      // Get the analysis text from the response
-      const analysisText = response.output_text || '';
+      const userId = request.data.userId;
       
-      // Log the completion for debugging
-      console.log(`Completed search request for ${homeTeam} vs ${awayTeam} game analysis`);
-
-      // For typescript, we need to handle the response structure properly
-      // Let's extract any citations if available
-      let citations: Array<{text: string, url: string, title: string}> = [];
-      
-      try {
-        // Access annotations if available in the right format
-        // This structure depends on the OpenAI API version, may need adjustments
-        const messageItem = response.output.find(item => item.type === 'message');
-        if (messageItem && 'content' in messageItem) {
-          const content = messageItem.content;
-          if (Array.isArray(content) && content.length > 0 && 'annotations' in content[0]) {
-            const annotations = content[0].annotations;
-            if (Array.isArray(annotations)) {
-              citations = annotations
-                .filter(anno => anno.type === 'url_citation')
-                .map(anno => {
-                  // Type assertion to handle the TypeScript error
-                  const urlCitation = anno as { 
-                    type: string; 
-                    text?: string;
-                    start_index?: number; 
-                    end_index?: number; 
-                    url?: string; 
-                    title?: string 
-                  };
-                  
-                  // Safely access properties with optional chaining
-                  return {
-                    text: urlCitation.start_index !== undefined && urlCitation.end_index !== undefined 
-                          ? analysisText.substring(urlCitation.start_index, urlCitation.end_index)
-                          : 'Citation',
-                    url: urlCitation.url || '#',
-                    title: urlCitation.title || 'Source'
-                  };
-                });
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to extract citations:', e);
-        // Continue with the analysis even if citation extraction fails
+      if (!userId) {
+        throw new HttpsError("invalid-argument", "User ID is required");
       }
-
-      // Return the analysis results with citations if available
-      return {
-        analysis: analysisText,
-        citations: citations,
-        metadata: {
-          homeTeam,
-          awayTeam,
-          gameDate,
-          generatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        }
-      };
-    } catch (error) {
-      console.error("Error generating betting analysis:", error);
-      throw new HttpsError(
-        "internal",
-        "Failed to generate betting analysis. Please try again later."
-      );
-    }
-  }
-);
-
-export const createPost = onCall(
-  {
-    region: "us-central1",
-    maxInstances: 10,
-  },
-  async (request) => {
-    console.log("createPost called by user:", request.auth?.uid, "data:", request.data);
-    const { content, taggedEvents, mediaUrl, mediaType } = request.data;
-    const auth = request.auth;
-
-    if (!auth) {
-      throw new HttpsError("unauthenticated", "User must be logged in to create a post");
-    }
-
-    if (!content || typeof content !== 'string' || content.trim() === '') {
-      throw new HttpsError("invalid-argument", "Post content is required");
-    }
-
-    // Validate taggedEvents if provided
-    if (taggedEvents && (!Array.isArray(taggedEvents) || taggedEvents.some(id => typeof id !== 'string'))) {
-      throw new HttpsError("invalid-argument", "Tagged events must be an array of event IDs");
-    }
-
-    // Validate mediaUrl and mediaType if provided
-    if (mediaUrl && typeof mediaUrl !== 'string') {
-      throw new HttpsError("invalid-argument", "Media URL must be a string");
-    }
-
-    if (mediaType && (mediaType !== 'image' && mediaType !== 'video')) {
-      throw new HttpsError("invalid-argument", "Media type must be 'image' or 'video'");
-    }
-
-    try {
-      // Get user data for username
-      const userDoc = await db.collection("users").doc(auth.uid).get();
+      
+      // Get only the necessary fields from the user document
+      const userDoc = await db.collection("users").doc(userId).get();
+      
       if (!userDoc.exists) {
         throw new HttpsError("not-found", "User not found");
       }
       
       const userData = userDoc.data();
-      const username = userData?.username || auth.token.name || auth.token.email?.split('@')[0] || 'User';
       
-      // Create the post document
-      const postData: any = {
-        content: content.trim(),
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        userId: auth.uid,
-        username: username,
-        userPhotoURL: auth.token.picture || null,
-        taggedEvents: taggedEvents || []
-      };
-      
-      // Add media fields if they are provided
-      if (mediaUrl) postData.mediaUrl = mediaUrl;
-      if (mediaType) postData.mediaType = mediaType;
-      
-      // Add the post to Firestore
-      const docRef = await db.collection("posts").add(postData);
-      
-      // For each tagged event, update its posts array
-      if (taggedEvents && taggedEvents.length > 0) {
-        const batch = db.batch();
-        for (const eventId of taggedEvents) {
-          const eventRef = db.collection("events").doc(eventId);
-          // Use array union to add the post ID to the event's posts array
-          batch.update(eventRef, {
-            posts: admin.firestore.FieldValue.arrayUnion(docRef.id)
+      // Return only public profile information
+      const photoURL = userData?.photoURL || null;
+      const username = userData?.username || null;
+      const tradeIds: string[] = userData?.trades || [];
+
+      let trades: any[] = [];
+
+      if (tradeIds.length > 0) {
+        // Fetch all trade documents concurrently
+        const tradeDocsPromises = tradeIds.map((tradeId) =>
+          db.collection("trades").doc(tradeId).get()
+        );
+        const tradeDocsSnapshots = await Promise.all(tradeDocsPromises);
+
+        const validTradeDocs = tradeDocsSnapshots.filter((doc) => doc.exists);
+
+        // Fetch associated event documents concurrently
+        const eventIds = validTradeDocs
+          .map((doc) => doc.data()?.eventId)
+          .filter((id): id is string => !!id); // Filter out undefined/null IDs
+
+        let eventsMap = new Map<string, any>();
+        if (eventIds.length > 0) {
+          const eventDocsPromises = eventIds.map((eventId) =>
+            db.collection("events").doc(eventId).get()
+          );
+          const eventDocsSnapshots = await Promise.all(eventDocsPromises);
+
+          eventDocsSnapshots.forEach((eventDoc) => {
+            if (eventDoc.exists) {
+              eventsMap.set(eventDoc.id, eventDoc.data());
+            }
           });
         }
-        await batch.commit();
-      }
-      
-      return {
-        success: true,
-        postId: docRef.id,
-        post: {
-          id: docRef.id,
-          ...postData,
-          // Return a client timestamp for immediate display
-          createdAt: new Date().toISOString()
-        }
-      };
-    } catch (error) {
-      console.error("Error creating post:", error);
-      throw new HttpsError("internal", "Failed to create post");
-    }
-  }
-);
 
-export const editPost = onCall(
-  {
-    region: "us-central1",
-    maxInstances: 10,
-  },
-  async (request) => {
-    // Ensure the user is authenticated
-    if (!request.auth) {
-      throw new HttpsError("unauthenticated", "User must be authenticated.");
-    }
-
-    const auth = request.auth;
-    const { postId, content, taggedEvents, mediaUrl, mediaType } = request.data;
-
-    // Validate required input
-    if (!postId || typeof postId !== "string") {
-      throw new HttpsError("invalid-argument", "A valid post ID is required.");
-    }
-
-    if (!content || typeof content !== "string" || content.trim().length === 0) {
-      throw new HttpsError("invalid-argument", "Post content is required.");
-    }
-
-    if (taggedEvents && !Array.isArray(taggedEvents)) {
-      throw new HttpsError("invalid-argument", "Tagged events must be an array.");
-    }
-
-    // Validate mediaUrl and mediaType if provided
-    if (mediaUrl !== undefined && typeof mediaUrl !== 'string') {
-      throw new HttpsError("invalid-argument", "Media URL must be a string");
-    }
-
-    if (mediaType && (mediaType !== 'image' && mediaType !== 'video')) {
-      throw new HttpsError("invalid-argument", "Media type must be 'image' or 'video'");
-    }
-
-    try {
-      // Get the post document
-      const postRef = db.collection("posts").doc(postId);
-      const postDoc = await postRef.get();
-      
-      // Check if post exists
-      if (!postDoc.exists) {
-        throw new HttpsError("not-found", "Post not found.");
-      }
-      
-      // Check if user is the author of the post
-      const postData = postDoc.data();
-      if (postData?.userId !== auth.uid) {
-        throw new HttpsError("permission-denied", "You can only edit your own posts.");
-      }
-      
-      // Prepare the update data
-      const updateData: any = {
-        content: content.trim(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      };
-      
-      // Update media fields if they are provided
-      if (mediaUrl !== undefined) {
-        updateData.mediaUrl = mediaUrl;
-      }
-      
-      if (mediaType !== undefined) {
-        updateData.mediaType = mediaType;
-      }
-      
-      // Handle tagged events updates if provided
-      if (taggedEvents) {
-        updateData.taggedEvents = taggedEvents;
-        
-        // If tagged events have changed, we need to update the events collection
-        const oldTaggedEvents = postData.taggedEvents || [];
-        
-        // Events to remove the post from
-        const eventsToRemove = oldTaggedEvents.filter(
-          (eventId: string) => !taggedEvents.includes(eventId)
-        );
-        
-        // Events to add the post to
-        const eventsToAdd = taggedEvents.filter(
-          (eventId: string) => !oldTaggedEvents.includes(eventId)
-        );
-        
-        // Update events in batches if needed
-        if (eventsToRemove.length > 0 || eventsToAdd.length > 0) {
-          const batch = db.batch();
-          
-          // Remove post ID from events that are no longer tagged
-          for (const eventId of eventsToRemove) {
-            const eventRef = db.collection("events").doc(eventId);
-            batch.update(eventRef, {
-              posts: admin.firestore.FieldValue.arrayRemove(postId)
-            });
+        // Combine trade and event data
+        trades = validTradeDocs.map((tradeDoc) => {
+          const tradeData = tradeDoc.data(); // Get data, could be undefined
+          if (!tradeData) {
+            console.warn(`Trade document ${tradeDoc.id} exists but data is undefined.`);
+            return null; // Return null for invalid data
           }
+          // Now tradeData is confirmed to exist
+          const event = eventsMap.get(tradeData.eventId);
           
-          // Add post ID to newly tagged events
-          for (const eventId of eventsToAdd) {
-            const eventRef = db.collection("events").doc(eventId);
-            batch.update(eventRef, {
-              posts: admin.firestore.FieldValue.arrayUnion(postId)
-            });
-          }
+          // Convert Firestore timestamp to serializable format
+          const createdAtTimestamp = tradeData.createdAt;
+          const serializedCreatedAt = createdAtTimestamp ? {
+            seconds: createdAtTimestamp.seconds,
+            nanoseconds: createdAtTimestamp.nanoseconds
+          } : null;
           
-          await batch.commit();
-        }
+          return {
+            ...tradeData,
+            id: tradeDoc.id,
+            createdAt: serializedCreatedAt, // Replace with serialized timestamp
+            event: event, // Add the fetched event data
+          };
+        }).filter((trade): trade is any => trade !== null); // Filter out the nulls
+
+        // Sort trades by createdAt timestamp (if available), newest first
+        trades.sort((a, b) => {
+          const timeA = a.createdAt?.seconds || 0;
+          const timeB = b.createdAt?.seconds || 0;
+          return timeB - timeA;
+        });
       }
-      
-      // Update the post document
-      await postRef.update(updateData);
-      
-      return {
-        success: true,
-        postId
+
+      const result = {
+        photoURL: photoURL,
+        username: username,
+        trades: trades,
       };
+
+      return result;
     } catch (error) {
-      console.error("Error editing post:", error);
-      throw new HttpsError("internal", "Failed to edit post: " + error);
+      console.error("Error fetching user profile info:", error);
+      throw new HttpsError("internal", "Failed to retrieve user profile information");
     }
   }
 );
@@ -1707,3 +1399,419 @@ export const getSoccerMatchBettingAnalysis = onCall(
     }
   }
 );
+
+export const getGameBettingAnalysis = onCall(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+  },
+  async (request) => {
+    // Ensure the user is authenticated
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated.");
+    }
+
+    // Get the input parameters
+    const { homeTeam, awayTeam, gameDate } = request.data;
+
+    // Validate required input
+    if (!homeTeam || !awayTeam || !gameDate) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Missing required fields: homeTeam, awayTeam, and gameDate are required."
+      );
+    }
+
+    try {
+      // Initialize OpenAI client with API key
+      // Note: In production, you should store this key in Firebase environment secrets
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+      });
+
+      // Call OpenAI with web search enabled
+      const response = await openai.responses.create({
+        model: "gpt-4o",
+        tools: [
+          { 
+            type: "web_search_preview",
+            search_context_size: "high" // Use high quality search for better analysis
+          }
+        ],
+        input: `Provide a detailed sports betting analysis for the NBA game between ${homeTeam} and ${awayTeam} scheduled for ${gameDate}. 
+                Include the following:
+                1. Recent team performance and trends
+                2. Key player stats and any injury updates
+                3. Head-to-head history between these teams
+                4. Current betting odds (spread, over/under, moneyline)
+                5. Expert opinions and predictions
+                6. Relevant statistical trends that might impact betting decisions
+                
+                Format this information in a clear, organized manner for someone making a betting decision.
+                Include citations to your sources.`,
+        tool_choice: { type: "web_search_preview" }, // Force web search for consistent results
+        temperature: 0.2, // Lower temperature for more factual responses
+      });
+
+      // Get the analysis text from the response
+      const analysisText = response.output_text || '';
+      
+      // Log the completion for debugging
+      console.log(`Completed search request for ${homeTeam} vs ${awayTeam} game analysis`);
+
+      // For typescript, we need to handle the response structure properly
+      // Let's extract any citations if available
+      let citations: Array<{text: string, url: string, title: string}> = [];
+      
+      try {
+        // Access annotations if available in the right format
+        // This structure depends on the OpenAI API version, may need adjustments
+        const messageItem = response.output.find(item => item.type === 'message');
+        if (messageItem && 'content' in messageItem) {
+          const content = messageItem.content;
+          if (Array.isArray(content) && content.length > 0 && 'annotations' in content[0]) {
+            const annotations = content[0].annotations;
+            if (Array.isArray(annotations)) {
+              citations = annotations
+                .filter(anno => anno.type === 'url_citation')
+                .map(anno => {
+                  // Type assertion to handle the TypeScript error
+                  const urlCitation = anno as { 
+                    type: string; 
+                    text?: string;
+                    start_index?: number; 
+                    end_index?: number; 
+                    url?: string; 
+                    title?: string 
+                  };
+                  
+                  // Safely access properties with optional chaining
+                  return {
+                    text: urlCitation.start_index !== undefined && urlCitation.end_index !== undefined 
+                          ? analysisText.substring(urlCitation.start_index, urlCitation.end_index)
+                          : 'Citation',
+                    url: urlCitation.url || '#',
+                    title: urlCitation.title || 'Source'
+                  };
+                });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to extract citations:', e);
+        // Continue with the analysis even if citation extraction fails
+      }
+
+      // Return the analysis results with citations if available
+      return {
+        analysis: analysisText,
+        citations: citations,
+        metadata: {
+          homeTeam,
+          awayTeam,
+          gameDate,
+          generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }
+      };
+    } catch (error) {
+      console.error("Error generating betting analysis:", error);
+      throw new HttpsError(
+        "internal",
+        "Failed to generate betting analysis. Please try again later."
+      );
+    }
+  }
+);
+
+export const createPost = onCall(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+  },
+  async (request) => {
+    console.log("createPost called by user:", request.auth?.uid, "data:", request.data);
+    const { content, taggedEvents, mediaUrl, mediaType } = request.data;
+    const auth = request.auth;
+
+    if (!auth) {
+      throw new HttpsError("unauthenticated", "User must be logged in to create a post");
+    }
+
+    if (!content || typeof content !== 'string' || content.trim() === '') {
+      throw new HttpsError("invalid-argument", "Post content is required");
+    }
+
+    // Validate taggedEvents if provided
+    if (taggedEvents && (!Array.isArray(taggedEvents) || taggedEvents.some(id => typeof id !== 'string'))) {
+      throw new HttpsError("invalid-argument", "Tagged events must be an array of event IDs");
+    }
+
+    // Validate mediaUrl and mediaType if provided
+    if (mediaUrl && typeof mediaUrl !== 'string') {
+      throw new HttpsError("invalid-argument", "Media URL must be a string");
+    }
+
+    if (mediaType && (mediaType !== 'image' && mediaType !== 'video')) {
+      throw new HttpsError("invalid-argument", "Media type must be 'image' or 'video'");
+    }
+
+    try {
+      // Get user data for username
+      const userDoc = await db.collection("users").doc(auth.uid).get();
+      if (!userDoc.exists) {
+        throw new HttpsError("not-found", "User not found");
+      }
+      
+      const userData = userDoc.data();
+      const username = userData?.username || auth.token.name || auth.token.email?.split('@')[0] || 'User';
+      
+      // Create the post document
+      const postData: any = {
+        content: content.trim(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        userId: auth.uid,
+        username: username,
+        userPhotoURL: auth.token.picture || null,
+        taggedEvents: taggedEvents || []
+      };
+      
+      // Add media fields if they are provided
+      if (mediaUrl) postData.mediaUrl = mediaUrl;
+      if (mediaType) postData.mediaType = mediaType;
+      
+      // Add the post to Firestore
+      const docRef = await db.collection("posts").add(postData);
+      
+      // For each tagged event, update its posts array
+      if (taggedEvents && taggedEvents.length > 0) {
+        const batch = db.batch();
+        for (const eventId of taggedEvents) {
+          const eventRef = db.collection("events").doc(eventId);
+          // Use array union to add the post ID to the event's posts array
+          batch.update(eventRef, {
+            posts: admin.firestore.FieldValue.arrayUnion(docRef.id)
+          });
+        }
+        await batch.commit();
+      }
+      
+      return {
+        success: true,
+        postId: docRef.id,
+        post: {
+          id: docRef.id,
+          ...postData,
+          // Return a client timestamp for immediate display
+          createdAt: new Date().toISOString()
+        }
+      };
+    } catch (error) {
+      console.error("Error creating post:", error);
+      throw new HttpsError("internal", "Failed to create post");
+    }
+  }
+);
+
+export const editPost = onCall(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+  },
+  async (request) => {
+    // Ensure the user is authenticated
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated.");
+    }
+
+    const auth = request.auth;
+    const { postId, content, taggedEvents, mediaUrl, mediaType } = request.data;
+
+    // Validate required input
+    if (!postId || typeof postId !== "string") {
+      throw new HttpsError("invalid-argument", "A valid post ID is required.");
+    }
+
+    if (!content || typeof content !== "string" || content.trim().length === 0) {
+      throw new HttpsError("invalid-argument", "Post content is required.");
+    }
+
+    if (taggedEvents && !Array.isArray(taggedEvents)) {
+      throw new HttpsError("invalid-argument", "Tagged events must be an array.");
+    }
+
+    // Validate mediaUrl and mediaType if provided
+    if (mediaUrl !== undefined && typeof mediaUrl !== 'string') {
+      throw new HttpsError("invalid-argument", "Media URL must be a string");
+    }
+
+    if (mediaType && (mediaType !== 'image' && mediaType !== 'video')) {
+      throw new HttpsError("invalid-argument", "Media type must be 'image' or 'video'");
+    }
+
+    try {
+      // Get the post document
+      const postRef = db.collection("posts").doc(postId);
+      const postDoc = await postRef.get();
+      
+      // Check if post exists
+      if (!postDoc.exists) {
+        throw new HttpsError("not-found", "Post not found.");
+      }
+      
+      // Check if user is the author of the post
+      const postData = postDoc.data();
+      if (postData?.userId !== auth.uid) {
+        throw new HttpsError("permission-denied", "You can only edit your own posts.");
+      }
+      
+      // Prepare the update data
+      const updateData: any = {
+        content: content.trim(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      
+      // Update media fields if they are provided
+      if (mediaUrl !== undefined) {
+        updateData.mediaUrl = mediaUrl;
+      }
+      
+      if (mediaType !== undefined) {
+        updateData.mediaType = mediaType;
+      }
+      
+      // Handle tagged events updates if provided
+      if (taggedEvents) {
+        updateData.taggedEvents = taggedEvents;
+        
+        // If tagged events have changed, we need to update the events collection
+        const oldTaggedEvents = postData.taggedEvents || [];
+        
+        // Events to remove the post from
+        const eventsToRemove = oldTaggedEvents.filter(
+          (eventId: string) => !taggedEvents.includes(eventId)
+        );
+        
+        // Events to add the post to
+        const eventsToAdd = taggedEvents.filter(
+          (eventId: string) => !oldTaggedEvents.includes(eventId)
+        );
+        
+        // Update events in batches if needed
+        if (eventsToRemove.length > 0 || eventsToAdd.length > 0) {
+          const batch = db.batch();
+          
+          // Remove post ID from events that are no longer tagged
+          for (const eventId of eventsToRemove) {
+            const eventRef = db.collection("events").doc(eventId);
+            batch.update(eventRef, {
+              posts: admin.firestore.FieldValue.arrayRemove(postId)
+            });
+          }
+          
+          // Add post ID to newly tagged events
+          for (const eventId of eventsToAdd) {
+            const eventRef = db.collection("events").doc(eventId);
+            batch.update(eventRef, {
+              posts: admin.firestore.FieldValue.arrayUnion(postId)
+            });
+          }
+          
+          await batch.commit();
+        }
+      }
+      
+      // Update the post document
+      await postRef.update(updateData);
+      
+      return {
+        success: true,
+        postId
+      };
+    } catch (error) {
+      console.error("Error editing post:", error);
+      throw new HttpsError("internal", "Failed to edit post: " + error);
+    }
+  }
+);
+
+// --- Marketplace Logic: buyBet & sellBet ---
+
+/**
+ * Allows a user to list a bet for sale
+ */
+export const sellBet = onCall({
+  region: "us-central1"
+}, async (request) => {
+  const { betId, salePrice } = request.data;
+  const auth = request.auth;
+  if (!auth) throw new HttpsError("unauthenticated", "Not signed in");
+  if (!betId || typeof salePrice !== "number") throw new HttpsError("invalid-argument", "Missing or invalid arguments");
+
+  const betRef = db.collection("trades").doc(betId);
+  const betSnap = await betRef.get();
+  if (!betSnap.exists) throw new HttpsError("not-found", "Bet not found");
+  const betData = betSnap.data();
+  if (!betData) throw new HttpsError("not-found", "Bet not found");
+  if (betData.userId !== auth.uid) throw new HttpsError("permission-denied", "You do not own this bet");
+  if (betData.forSale) throw new HttpsError("failed-precondition", "Bet already for sale");
+  if (betData.status && betData.status !== "Pending") throw new HttpsError("failed-precondition", "Bet is not pending");
+
+  await betRef.update({ forSale: true, salePrice });
+  return { success: true };
+});
+
+/**
+ * Allows a user to buy a bet listed for sale
+ */
+export const buyBet = onCall({
+  region: "us-central1"
+}, async (request) => {
+  const { betId } = request.data;
+  const auth = request.auth;
+  if (!auth) throw new HttpsError("unauthenticated", "Not signed in");
+  if (!betId) throw new HttpsError("invalid-argument", "Missing betId");
+
+  const betRef = db.collection("trades").doc(betId);
+  await db.runTransaction(async (transaction) => {
+    const betSnap = await transaction.get(betRef);
+    if (!betSnap.exists) throw new HttpsError("not-found", "Bet not found");
+    const betData = betSnap.data();
+    if (!betData) throw new HttpsError("not-found", "Bet not found");
+    if (!betData.forSale) throw new HttpsError("failed-precondition", "Bet not for sale");
+    if (betData.userId === auth.uid) throw new HttpsError("failed-precondition", "Cannot buy your own bet");
+    const salePrice = betData.salePrice;
+    if (typeof salePrice !== "number") throw new HttpsError("invalid-argument", "Invalid sale price");
+
+    const buyerRef = db.collection("users").doc(auth.uid);
+    const sellerRef = db.collection("users").doc(betData.userId);
+    const [buyerSnap, sellerSnap] = await Promise.all([
+      transaction.get(buyerRef),
+      transaction.get(sellerRef)
+    ]);
+    if (!buyerSnap.exists) throw new HttpsError("not-found", "Buyer not found");
+    if (!sellerSnap.exists) throw new HttpsError("not-found", "Seller not found");
+    const buyer = buyerSnap.data();
+    if (!buyer) throw new HttpsError("not-found", "Buyer not found");
+    const seller = sellerSnap.data();
+    if (!seller) throw new HttpsError("not-found", "Seller not found");
+    if ((buyer.walletBalance ?? 0) < salePrice) throw new HttpsError("failed-precondition", "Insufficient funds");
+
+    // Transfer bet
+    transaction.update(betRef, {
+      userId: auth.uid,
+      forSale: false,
+      salePrice: null
+    });
+    // Update wallets
+    transaction.update(buyerRef, {
+      walletBalance: (buyer.walletBalance ?? 0) - salePrice,
+      trades: admin.firestore.FieldValue.arrayUnion(betId)
+    });
+    transaction.update(sellerRef, {
+      walletBalance: (seller.walletBalance ?? 0) + salePrice,
+      trades: admin.firestore.FieldValue.arrayRemove(betId)
+    });
+  });
+  return { success: true };
+});
+// --- End Marketplace Logic ---
