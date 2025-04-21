@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '@/lib/firebase';
+import { useRouter } from 'next/navigation';
 
 interface UserStats {
   id: string;
@@ -17,6 +18,7 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const router = useRouter();
   
   // Reference to the last element for infinite scrolling
   const observer = useRef<IntersectionObserver | null>(null);
@@ -84,6 +86,11 @@ export default function LeaderboardPage() {
     }
   };
 
+  // Handle navigation to user profile
+  const handleUserClick = (userId: string, username: string) => {
+    router.push(`/profile?userId=${userId}&username=${encodeURIComponent(username)}`);
+  };
+
   if (loading && users.length === 0) {
     return (
       <div className="max-w-3xl mx-auto py-8 px-4">
@@ -122,8 +129,11 @@ export default function LeaderboardPage() {
               <div className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold">
                 {index + 1}
               </div>
-              <div>
-                <h3 className="font-semibold">{user.username}</h3>
+              <div 
+                className="cursor-pointer" 
+                onClick={() => handleUserClick(user.id, user.username)}
+              >
+                <h3 className="font-semibold text-blue-600 dark:text-blue-400 hover:underline">{user.username}</h3>
                 <div className="flex gap-4 mt-1 text-sm text-gray-500 dark:text-gray-400">
                   <span>{user.totalBets} bets</span>
                   <span>{(user.winRate * 100).toFixed(1)}% win rate</span>

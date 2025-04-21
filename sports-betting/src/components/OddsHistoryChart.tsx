@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { 
   Chart as ChartJS, 
   CategoryScale, 
@@ -9,14 +9,13 @@ import {
   LineElement, 
   Title, 
   Tooltip, 
-  Legend,
-  TimeScale
+  Legend 
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { collection, query, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
-// Register the components we need from Chart.js
+// Register Chart.js components
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -24,87 +23,100 @@ ChartJS.register(
   LineElement,
   Title,
   Tooltip,
-  Legend,
-  TimeScale
+  Legend
 );
 
 interface OddsRecord {
-  timestamp: Date;
+  timestamp: any;
   homeTeamOdds: number;
   visitorTeamOdds: number;
+  drawOdds?: number;
 }
 
 interface OddsHistoryChartProps {
-  eventId: string;
+  data?: OddsRecord[];
+  eventId?: string;
   homeTeamName: string;
-  visitorTeamName: string;
+  awayTeamName: string;
+  showDraw?: boolean;
 }
 
 export default function OddsHistoryChart({ 
+  data, 
   eventId, 
   homeTeamName, 
-  visitorTeamName 
+  awayTeamName,
+  showDraw = false
 }: OddsHistoryChartProps) {
   const [oddsHistory, setOddsHistory] = useState<OddsRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Fetch odds history from Firestore if data is not provided directly
   useEffect(() => {
-    async function fetchOddsHistory() {
+    if (data) {
+      setOddsHistory(data);
+      setLoading(false);
+      return;
+    }
+
+    if (!eventId) {
+      setError('No event ID or data provided');
+      setLoading(false);
+      return;
+    }
+
+    const fetchOddsHistory = async () => {
       try {
-        setLoading(true);
+        const oddsQuery = query(
+          collection(db, 'events', eventId, 'oddsHistory'),
+          orderBy('timestamp', 'asc')
+        );
         
-        // Query the oddsHistory subcollection for this event
-        const oddsHistoryRef = collection(db, 'events', eventId, 'oddsHistory');
-        const oddsQuery = query(oddsHistoryRef, orderBy('timestamp', 'asc'));
-        const querySnapshot = await getDocs(oddsQuery);
-        
-        const records: OddsRecord[] = [];
-        querySnapshot.forEach((doc) => {
+        const snapshot = await getDocs(oddsQuery);
+        const records = snapshot.docs.map(doc => {
           const data = doc.data();
-          records.push({
-            timestamp: data.timestamp.toDate(), // Convert Firestore timestamp to Date
+          return {
+            timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : data.timestamp,
             homeTeamOdds: data.homeTeamOdds,
-            visitorTeamOdds: data.visitorTeamOdds
-          });
+            visitorTeamOdds: data.visitorTeamOdds || data.awayTeamOdds,
+            drawOdds: data.drawOdds
+          };
         });
         
         setOddsHistory(records);
+        setLoading(false);
       } catch (err) {
         console.error('Error fetching odds history:', err);
         setError('Failed to load odds history');
-      } finally {
         setLoading(false);
       }
-    }
+    };
 
-    if (eventId) {
-      fetchOddsHistory();
-    }
-  }, [eventId]);
+    fetchOddsHistory();
+  }, [eventId, data]);
 
   // If we're still loading or there's an error, show a placeholder
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-pulse">Loading odds history...</div>
+      <div className="w-full h-64 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-lg">
+        <div className="text-gray-500 dark:text-gray-400">Loading odds history...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex justify-center items-center h-64 text-red-500">
-        {error}
+      <div className="w-full h-64 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-lg">
+        <div className="text-red-500">{error}</div>
       </div>
     );
   }
 
-  // If no odds history data is available
   if (oddsHistory.length === 0) {
     return (
-      <div className="flex justify-center items-center h-64 text-gray-500">
-        No odds history available
+      <div className="w-full h-64 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-lg">
+        <div className="text-gray-500 dark:text-gray-400">No odds history available</div>
       </div>
     );
   }
@@ -117,7 +129,7 @@ export default function OddsHistoryChart({
     }),
     datasets: [
       {
-        label: homeTeamName,
+        label: `${homeTeamName} (Home)`,
         data: oddsHistory.map(record => record.homeTeamOdds),
         borderColor: 'rgba(59, 130, 246, 1)', // Blue
         backgroundColor: 'rgba(59, 130, 246, 0.2)',
@@ -126,54 +138,53 @@ export default function OddsHistoryChart({
         pointRadius: 0 // Remove dots
       },
       {
-        label: visitorTeamName,
+        label: `${awayTeamName} (Away)`,
         data: oddsHistory.map(record => record.visitorTeamOdds),
         borderColor: 'rgba(239, 68, 68, 1)', // Red
         backgroundColor: 'rgba(239, 68, 68, 0.2)',
         fill: false,
         tension: 0.3,
         pointRadius: 0 // Remove dots
-      }
+      },
+      // Add draw dataset if showDraw is true and we have data
+      ...(showDraw ? [{
+        label: 'Draw',
+        data: oddsHistory.map(record => record.drawOdds || 0),
+        borderColor: 'rgba(234, 179, 8, 1)', // Yellow
+        backgroundColor: 'rgba(234, 179, 8, 0.2)',
+        fill: false,
+        tension: 0.3,
+        pointRadius: 0 // Remove dots
+      }] : [])
     ]
   };
 
-  // Configure chart options
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'top' as const,
-      },
-      title: {
-        display: true,
-        text: 'Odds History',
-      },
-      tooltip: {
-        callbacks: {
-          label: function(context: any) {
-            return `${context.dataset.label}: ${context.parsed.y}% chance`;
-          }
-        }
-      }
-    },
     scales: {
       y: {
-        beginAtZero: false,
-        min: 0,
+        beginAtZero: true,
         max: 100,
         title: {
           display: true,
           text: 'Win Probability (%)'
         }
+      }
+    },
+    plugins: {
+      legend: {
+        position: 'top' as const,
+        labels: {
+          usePointStyle: true,
+          boxWidth: 6
+        }
       },
-      x: {
-        title: {
-          display: true,
-          text: 'Date & Time'
-        },
-        ticks: {
-          maxTicksLimit: 10 // Limit to at most 10 ticks on x-axis
+      tooltip: {
+        callbacks: {
+          label: function(context: any) {
+            return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}%`;
+          }
         }
       }
     }

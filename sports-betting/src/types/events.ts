@@ -1,11 +1,12 @@
 export interface Team {
+  id: number | string;
   abbreviation: string;
-  city: string;
-  conference: string;
-  division: string;
+  city?: string;
+  conference?: string;
+  division?: string;
   full_name: string;
-  id: number;
-  name: string;
+  name?: string;
+  logo?: string; // Added for soccer teams
 }
 
 export interface Event {
@@ -23,6 +24,13 @@ export interface Event {
   updatedAt: Date;
   homeTeamCurrentOdds: number;
   visitorTeamCurrentOdds: number;
+  drawOdds?: number; // For soccer matches
   datetime: string;
   trades?: string[];  // Array of trade IDs
+  sport?: 'basketball' | 'soccer'; // Sport identifier
+  competition?: { // For soccer matches
+    id: number;
+    name: string;
+    logo?: string;
+  };
 } 

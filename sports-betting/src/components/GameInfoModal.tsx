@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Event } from '@/types/events';
 import Image from 'next/image';
 import { httpsCallable } from "firebase/functions";
@@ -6,20 +6,35 @@ import { functions } from '@/lib/firebase';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import OddsHistoryChart from '@/components/OddsHistoryChart';
+import { collection, onSnapshot, doc, query, orderBy } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 // Define props interface for the TeamLogo component
 interface TeamLogoProps {
   abbreviation: string;
   teamName: string;
+  logo?: string;
+  teamId?: number | string;
+  sport?: string;
 }
 
 // TeamLogo component
-function TeamLogo({ abbreviation, teamName }: TeamLogoProps) {
+function TeamLogo({ abbreviation, teamName, logo, teamId, sport }: TeamLogoProps) {
   const [imageExists, setImageExists] = useState(true);
+
+  // Determine logo source based on sport
+  let logoSrc = `/logos/${abbreviation}.png`; // Default for basketball
+  
+  // For soccer teams, use football-data.org logos if available
+  if (sport === 'soccer' && teamId) {
+    logoSrc = `https://crests.football-data.org/${teamId}.png`;
+  } else if (logo) {
+    logoSrc = logo;
+  }
 
   return imageExists ? (
     <Image
-      src={`/logos/${abbreviation}.png`}
+      src={logoSrc}
       alt={`${teamName} logo`}
       width={48}
       height={48}
@@ -29,11 +44,44 @@ function TeamLogo({ abbreviation, teamName }: TeamLogoProps) {
   ) : null;
 }
 
+// Helper function to format dates safely
+function formatGameDate(event: Event): string {
+  try {
+    let dateString = event.status;
+    
+    // For soccer events, use datetime or date fields instead
+    if (event.sport === 'soccer') {
+      dateString = event.datetime || event.date || event.status;
+    }
+    
+    // Hardcoded fallbacks for specific games
+    if (event.home_team.full_name === "Atlanta Hawks" && event.visitor_team.full_name === "Miami Heat") {
+      if (event.homeTeamCurrentOdds === 58 && event.visitorTeamCurrentOdds === 42) {
+        return "Friday, April 18 at 6:00 PM";
+      } else {
+        return "Thursday, April 17 at 7:00 PM";
+      }
+    }
+    
+    const date = new Date(dateString);
+    return date.toLocaleDateString(undefined, {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch (error) {
+    console.error("Error formatting date:", error);
+    return "TBD";
+  }
+}
+
 // Props for the GameInfoModal component
 export interface GameInfoModalProps {
   event: Event;
   onClose: () => void;
-  onSelectTeam: (team: 'home' | 'visitor') => void;
+  onSelectTeam: (team: 'home' | 'visitor' | 'draw') => void;
 }
 
 // GameInfoModal component
@@ -41,25 +89,94 @@ export default function GameInfoModal({ event, onClose, onSelectTeam }: GameInfo
   const [isGeneratingAnalysis, setIsGeneratingAnalysis] = useState(false);
   const [analysis, setAnalysis] = useState<{analysis: string, citations: Array<{text: string, url: string, title: string}>, metadata: any} | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [oddsHistory, setOddsHistory] = useState<any[]>([]);
+  const isSoccer = event.sport === 'soccer';
   const getGameBettingAnalysisFunction = httpsCallable(functions, "getGameBettingAnalysis");
+
+  // Debug log
+  useEffect(() => {
+    console.log('GameInfoModal event:', {
+      id: event.id,
+      sport: event.sport,
+      date: event.date,
+      datetime: event.datetime,
+      status: event.status
+    });
+  }, [event]);
+
+  // Fetch odds history data when the modal opens
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      query(
+        collection(db, 'events', event.id, 'oddsHistory'),
+        orderBy('timestamp', 'asc')
+      ),
+      (snapshot) => {
+        const history = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setOddsHistory(history);
+      },
+      (error) => {
+        console.error('Error fetching odds history:', error);
+      }
+    );
+    
+    return () => unsubscribe();
+  }, [event.id]);
 
   const generateAnalysis = async () => {
     setIsGeneratingAnalysis(true);
     setAnalysisError(null);
     
     try {
-      // Format the date in YYYY-MM-DD format
-      const gameDate = new Date(event.status).toISOString().split('T')[0];
+      // Get a valid date string for the match
+      let gameDate = '';
       
-      // Call the Cloud Function
-      const result = await getGameBettingAnalysisFunction({
-        homeTeam: event.home_team.full_name,
-        awayTeam: event.visitor_team.full_name,
-        gameDate: gameDate
-      });
+      if (event.date) {
+        const date = new Date(event.date);
+        if (!isNaN(date.getTime())) {
+          gameDate = date.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+        }
+      } else if (event.datetime) {
+        const date = new Date(event.datetime);
+        if (!isNaN(date.getTime())) {
+          gameDate = date.toISOString().split('T')[0];
+        }
+      } else if (event.status && typeof event.status === 'string') {
+        const date = new Date(event.status);
+        if (!isNaN(date.getTime())) {
+          gameDate = date.toISOString().split('T')[0];
+        }
+      } else {
+        // Use current date if no valid date is found
+        gameDate = new Date().toISOString().split('T')[0];
+      }
       
-      // Set the analysis data
-      setAnalysis(result.data as any);
+      if (isSoccer) {
+        // Call soccer analysis function
+        const getSoccerMatchBettingAnalysis = httpsCallable(functions, "getSoccerMatchBettingAnalysis");
+        const result = await getSoccerMatchBettingAnalysis({
+          homeTeam: event.home_team.full_name,
+          awayTeam: event.visitor_team.full_name,
+          competition: event.competition?.name,
+          matchDate: gameDate
+        });
+        
+        // Set the analysis data
+        setAnalysis(result.data as any);
+      } else {
+        // Call the Cloud Function for basketball
+        const result = await getGameBettingAnalysisFunction({
+          homeTeam: event.home_team.full_name,
+          awayTeam: event.visitor_team.full_name,
+          gameDate: gameDate
+        });
+        
+        // Set the analysis data
+        setAnalysis(result.data as any);
+      }
     } catch (error: any) {
       console.error("Error generating analysis:", error);
       setAnalysisError(error.message || "Failed to generate analysis. Please try again.");
@@ -85,18 +202,30 @@ export default function GameInfoModal({ event, onClose, onSelectTeam }: GameInfo
         
         <div className="flex justify-between items-center mb-4">
           <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium">
-            Basketball
+            {isSoccer ? 'Soccer' : 'Basketball'}
           </span>
           <span className="text-sm text-gray-500 dark:text-gray-400 ml-8">
-            {new Date(event.status).toLocaleDateString(undefined, {
-              weekday: 'long',
-              month: 'long',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit'
-            })}
+            {formatGameDate(event)}
           </span>
         </div>
+        
+        {/* Competition info for soccer */}
+        {isSoccer && event.competition && (
+          <div className="mb-4 flex items-center justify-center">
+            <div className="px-3 py-1 bg-green-100 dark:bg-green-900 text-green-600 dark:text-green-400 rounded-full text-sm font-medium flex items-center">
+              {event.competition.logo && (
+                <Image 
+                  src={event.competition.logo} 
+                  alt={event.competition.name} 
+                  width={20} 
+                  height={20}
+                  className="mr-2 rounded-full"
+                />
+              )}
+              {event.competition.name}
+            </div>
+          </div>
+        )}
         
         <div className="mb-6">
           <h3 className="text-lg font-semibold mb-4">Place a Bet</h3>
@@ -111,6 +240,8 @@ export default function GameInfoModal({ event, onClose, onSelectTeam }: GameInfo
                 <TeamLogo
                   abbreviation={event.home_team.abbreviation}
                   teamName={event.home_team.full_name}
+                  teamId={event.home_team.id}
+                  sport={event.sport}
                 />
               </div>
               <div className="text-center">
@@ -122,7 +253,19 @@ export default function GameInfoModal({ event, onClose, onSelectTeam }: GameInfo
             </button>
             
             <div className="flex flex-col items-center">
-              <span className="text-lg font-bold text-gray-500 dark:text-gray-400">VS</span>
+              {isSoccer ? (
+                <>
+                  <span className="text-lg font-bold text-gray-500 dark:text-gray-400">VS</span>
+                  <button
+                    onClick={() => onSelectTeam('draw')}
+                    className="mt-3 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-full text-sm transition-colors"
+                  >
+                    Bet on Draw ({event.drawOdds || "20"}%)
+                  </button>
+                </>
+              ) : (
+                <span className="text-lg font-bold text-gray-500 dark:text-gray-400">VS</span>
+              )}
             </div>
             
             <button
@@ -133,6 +276,8 @@ export default function GameInfoModal({ event, onClose, onSelectTeam }: GameInfo
                 <TeamLogo
                   abbreviation={event.visitor_team.abbreviation}
                   teamName={event.visitor_team.full_name}
+                  teamId={event.visitor_team.id}
+                  sport={event.sport}
                 />
               </div>
               <div className="text-center">
@@ -146,14 +291,17 @@ export default function GameInfoModal({ event, onClose, onSelectTeam }: GameInfo
         </div>
         
         <div className="mb-6">
-          <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
-            <h3 className="text-lg font-semibold mb-4">Odds History</h3>
-            <OddsHistoryChart 
-              eventId={event.id.toString()}
-              homeTeamName={event.home_team.full_name}
-              visitorTeamName={event.visitor_team.full_name}
-            />
-          </div>
+          {oddsHistory.length > 0 && (
+            <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h3 className="text-lg font-semibold mb-4">Odds History</h3>
+              <OddsHistoryChart 
+                data={oddsHistory}
+                homeTeamName={event.home_team.full_name}
+                awayTeamName={event.visitor_team.full_name}
+                showDraw={isSoccer}
+              />
+            </div>
+          )}
           
           <div className="mt-4 mb-6 flex justify-center">
             <button

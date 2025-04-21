@@ -26,27 +26,70 @@ import BettingModal from '@/components/BettingModal';
 import OddsHistoryChart from '@/components/OddsHistoryChart';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+// Import the shared event fetching utility
+import { fetchEvents, fetchEventById, formatEventDate } from '@/utils/eventFetching';
 
 // Import the TeamLogo component from the main page
-function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: string }) {
+function TeamLogo({ 
+  abbreviation, 
+  teamName, 
+  sport, 
+  teamId 
+}: { 
+  abbreviation: string; 
+  teamName: string; 
+  sport?: string; 
+  teamId?: number | string 
+}) {
   const [imageExists, setImageExists] = useState(true);
+  
+  // For soccer teams, use the football-data.org API
+  let logoUrl = `/logos/${abbreviation}.png`; // Default logo
+  
+  if (sport === 'soccer' && teamId !== undefined) {
+    // Use the football-data.org API for soccer team logos
+    logoUrl = `https://crests.football-data.org/${teamId}.png`;
+  }
 
   return imageExists ? (
     <Image
-      src={`/logos/${abbreviation}.png`}
+      src={logoUrl}
       alt={`${teamName} logo`}
-      width={48}
-      height={48}
+      width={32}
+      height={32}
       className="rounded-full"
       onError={() => setImageExists(false)}
     />
-  ) : null;
+  ) : (
+    // Fallback if image doesn't exist
+    <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center text-gray-500 dark:text-gray-400 text-xs font-medium">
+      {abbreviation?.substring(0, 2) || "?"}
+    </div>
+  );
+}
+
+// Fix formatEventDate to handle various date formats
+function safeFormatEventDate(dateValue: string | Date | undefined | null): string {
+  if (!dateValue) return 'TBD';
+  
+  // If it's already a string, use it directly
+  try {
+    const dateString = typeof dateValue === 'string' 
+      ? dateValue 
+      : dateValue instanceof Date 
+        ? dateValue.toISOString() 
+        : 'TBD';
+    return formatEventDate(dateString);
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return 'TBD';
+  }
 }
 
 export default function Events() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' } | null>(null);
+  const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' | 'draw' } | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDates, setFilterDates] = useState<[Date | null, Date | null]>([null, null]);
@@ -67,27 +110,34 @@ export default function Events() {
 
   // Function to check if date is valid
   const isValidDate = (date: any): boolean => {
-    const d = new Date(date);
-    return d instanceof Date && !isNaN(d.getTime());
+    if (!date) return false;
+    
+    // If it's a string date format
+    if (typeof date === 'string') {
+      const d = new Date(date);
+      return d instanceof Date && !isNaN(d.getTime());
+    }
+    
+    // If it's already a Date object
+    if (date instanceof Date) {
+      return !isNaN(date.getTime());
+    }
+    
+    return false;
   };
 
   /**
-   * Fetch event by ID from Firestore
+   * Fetch event by ID from Firestore - now using shared utility
    */
-  const fetchEventById = async (eventId: string | number | null) => {
+  const handleFetchEventById = async (eventId: string | number | null) => {
     if (eventId === null || eventId === undefined) {
       console.error('No event ID provided');
       return;
     }
     
-    // Always convert to string for Firestore
-    const docId = String(eventId);
-    
     try {
-      const eventDoc = await getDoc(doc(db, 'events', docId));
-      if (eventDoc.exists()) {
-        const eventData = eventDoc.data() as Event;
-        eventData.id = eventDoc.id;
+      const eventData = await fetchEventById(eventId);
+      if (eventData) {
         setSelectedEvent(eventData);
       } else {
         console.error('Event document does not exist');
@@ -104,7 +154,7 @@ export default function Events() {
     const eventId = urlParams.get('event');
     
     if (eventId) {
-      fetchEventById(eventId);
+      handleFetchEventById(eventId);
       
       // Clean up the URL without reloading the page
       const newUrl = window.location.pathname;
@@ -116,7 +166,7 @@ export default function Events() {
       if (e.detail && typeof e.detail === 'object' && 'eventId' in e.detail) {
         const { eventId } = e.detail;
         // eventId can be string or number, fetchEventById will handle it
-        fetchEventById(eventId);
+        handleFetchEventById(eventId);
       } else {
         console.error('Invalid custom event format', e);
       }
@@ -138,14 +188,15 @@ export default function Events() {
     setEvents([]);
     setHasMore(true);
     lastDocRef.current = null;
-    fetchEvents();
+    loadEvents();
   }, [searchQuery, filterDates]);
 
   /**
-   * Fetch the next batch of events (10 at a time).
+   * Fetch the next batch of events (10 at a time) using shared utility
    */
-  const fetchEvents = async () => {
-    console.log('fetchEvents called - current lastDoc:', lastDocRef.current ? { id: lastDocRef.current.id, date: lastDocRef.current.data().date } : null);
+  const loadEvents = async () => {
+    console.log('loadEvents called - current lastDoc:', lastDocRef.current ? { id: lastDocRef.current.id, date: lastDocRef.current.data().date } : null);
+    
     if (!hasMore) {
       return;
     }
@@ -153,125 +204,69 @@ export default function Events() {
     setIsFetchingMore(true);
 
     try {
-      const eventsRef = collection(db, 'events');
-      let constraints: any[] = [
-        orderBy('date', 'asc'),
-        orderBy('__name__', 'asc'),
-        limit(10)
-      ];
-      
-      // Add date filter if a date range is selected
-      if (filterDates[0]) {
-        const startDateStr = filterDates[0].toISOString().split('T')[0]; // Format: YYYY-MM-DD
-        constraints.push(where('date', '>=', startDateStr));
-        if (filterDates[1]) {
-          const endDateStr = filterDates[1].toISOString().split('T')[0]; // Format: YYYY-MM-DD
-          constraints.push(where('date', '<=', endDateStr));
-        }
-      } else {
-        const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
-        constraints.push(where('date', '>=', today));
-      }
-
-      // Add pagination if there's a last document
-      if (lastDocRef.current) {
-        constraints.push(startAfter(lastDocRef.current.data().date, lastDocRef.current.id));
-      }
-
-      // Debug logging
-      console.log('Query Debug Info:');
-      console.log('Events Reference:', {
-        path: eventsRef.path,
-        id: eventsRef.id,
-        type: eventsRef.type,
+      // Convert filterDates to the format expected by fetchEvents
+      const result = await fetchEvents({
+        filterDates: filterDates,
+        pageSize: 10,
+        lastDoc: lastDocRef.current
       });
-      console.log('Constraints:', constraints.map(c => ({
-        type: c.type,
-        field: c.field,
-        value: c.value,
-        direction: c.direction, // for orderBy
-        limit: c.limit, // for limit
-      })));
-      console.log('Last Doc:', lastDocRef.current ? { id: lastDocRef.current.id, date: lastDocRef.current.data().date } : null);
 
-      let q = query(eventsRef, ...constraints);
-      const querySnapshot = await getDocs(q);
+      const { events: newEvents, lastDoc, hasMore: moreResults } = result;
+
+      // Update state with new events
+      setEvents(prev => [...prev, ...newEvents]);
+      lastDocRef.current = lastDoc; // Store lastDoc
+      setHasMore(moreResults);
+      setLoading(false);
       
-      if (!querySnapshot.empty) {
-        let newEvents: Event[] = querySnapshot.docs.map((docSnap) => {
-          const { id, ...data } = docSnap.data();
-          return { id: docSnap.id, ...data } as Event;
-        });        
-
-        // Apply search filter in memory if search query exists
-        if (searchQuery) {
-          const searchLower = searchQuery.toLowerCase();
-          newEvents = newEvents.filter(event => 
-            event.home_team.full_name.toLowerCase().includes(searchLower) ||
-            event.visitor_team.full_name.toLowerCase().includes(searchLower) ||
-            event.home_team.city.toLowerCase().includes(searchLower) ||
-            event.visitor_team.city.toLowerCase().includes(searchLower)
-          );
-        }
-
-        setEvents(prev => {
-          // Filter out events that already exist in the current state
-          const newUniqueEvents = newEvents.filter(newEvent =>
-            !prev.some(existingEvent => existingEvent.id === newEvent.id)
-          );
-          return [...prev, ...newUniqueEvents];
-        });
-        lastDocRef.current = querySnapshot.docs[querySnapshot.docs.length - 1];
-        
-        if (querySnapshot.size < 10) {
-          setHasMore(false);
-        }
-      } else {
-        setHasMore(false);
-      }
     } catch (error) {
-      console.error('Error fetching events:', error);
+      console.error('Error loading events:', error);
+      setLoading(false);
     } finally {
       setIsFetchingMore(false);
-      setLoading(false);
     }
   };
 
-  /**
-   * Fetch initial events on mount
-   */
-  useEffect(() => {
-    fetchEvents();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /**
-   * Set up an IntersectionObserver on a sentinel <div> to trigger fetch for next events.
-   */
+  // For infinite scroll functionality
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        // If the sentinel is intersecting and we're not already fetching and there's more data
-        if (entries[0].isIntersecting && !isFetchingMore && hasMore) {
-          fetchEvents();
+        const [entry] = entries;
+        if (entry.isIntersecting && hasMore && !isFetchingMore) {
+          loadEvents();
         }
       },
-      {
-        threshold: 1.0
-      }
+      { threshold: 0.5 }
     );
 
-    if (loadMoreRef.current) {
-      observer.observe(loadMoreRef.current);
+    const currentLoadMoreRef = loadMoreRef.current;
+    if (currentLoadMoreRef) {
+      observer.observe(currentLoadMoreRef);
     }
 
-    // Cleanup
     return () => {
-      if (loadMoreRef.current) {
-        observer.unobserve(loadMoreRef.current);
+      if (currentLoadMoreRef) {
+        observer.unobserve(currentLoadMoreRef);
       }
     };
-  }, [loadMoreRef, hasMore, isFetchingMore]);
+  }, [hasMore, isFetchingMore]);
+
+  // Initial fetch on component mount
+  useEffect(() => {
+    loadEvents();
+  }, []);
+
+  // Debug events data
+  useEffect(() => {
+    console.log('Events loaded:', events.length);
+    if (events.length > 0) {
+      const soccerEvents = events.filter(e => e.sport === 'soccer');
+      console.log('Soccer events:', soccerEvents.length);
+      if (soccerEvents.length > 0) {
+        console.log('First soccer event:', soccerEvents[0]);
+      }
+    }
+  }, [events]);
 
   if (loading) {
     return (
@@ -285,8 +280,16 @@ export default function Events() {
     );
   }
 
-  // Filter events with valid dates
-  const validEvents = events.filter(event => event.status && isValidDate(event.status));
+  // Filter events with valid dates - different handling for soccer vs basketball
+  const validEvents = events.filter(event => {
+    // Soccer events use 'datetime' or 'date' fields
+    if (event.sport === 'soccer') {
+      return isValidDate(event.datetime) || isValidDate(event.date);
+    }
+    
+    // Basketball events use 'status' field
+    return isValidDate(event.status);
+  });
 
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
@@ -329,8 +332,13 @@ export default function Events() {
             <div className="p-4">
               <div className="flex items-center justify-between mb-4">
                 <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium">
-                  Basketball
+                  {event.sport === 'soccer' ? 'Soccer' : 'Basketball'}
                 </span>
+                {event.sport === 'soccer' && event.competition && (
+                  <span className="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full text-xs font-medium">
+                    {event.competition.name}
+                  </span>
+                )}
                 <div className="flex items-center gap-2">
                   {event.trades && (
                     <div className="flex items-center">
@@ -347,21 +355,28 @@ export default function Events() {
                 <div className="text-left p-4">
                   <div className="flex items-center gap-4">
                     <TeamLogo
-                      abbreviation={event.home_team.abbreviation}
-                      teamName={event.home_team.full_name}
+                      abbreviation={event.home_team.abbreviation || ''}
+                      teamName={event.home_team.full_name || event.home_team.name || ''}
+                      sport={event.sport}
+                      teamId={event.home_team.id}
                     />
                     <div>
                       <div className="font-semibold text-lg">
-                        {event.home_team.full_name}
+                        {event.home_team.full_name || event.home_team.name || 'Home Team'}
                       </div>
                       <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        {event.homeTeamCurrentOdds}% chance
+                        {event.homeTeamCurrentOdds || '0'}% chance
                       </div>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex flex-col items-center justify-center">
+                  {event.sport === 'soccer' && event.drawOdds && (
+                    <div className="text-sm bg-yellow-100 dark:bg-yellow-900 text-yellow-600 dark:text-yellow-400 px-2 py-1 rounded mb-1">
+                      Draw: {event.drawOdds}%
+                    </div>
+                  )}
                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">VS</div>
                 </div>
 
@@ -369,15 +384,17 @@ export default function Events() {
                   <div className="flex items-center justify-end gap-4">
                     <div>
                       <div className="font-semibold text-lg">
-                        {event.visitor_team.full_name}
+                        {event.visitor_team.full_name || event.visitor_team.name || 'Away Team'}
                       </div>
                       <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        {event.visitorTeamCurrentOdds}% chance
+                        {event.visitorTeamCurrentOdds || '0'}% chance
                       </div>
                     </div>
                     <TeamLogo
-                      abbreviation={event.visitor_team.abbreviation}
-                      teamName={event.visitor_team.full_name}
+                      abbreviation={event.visitor_team.abbreviation || ''}
+                      teamName={event.visitor_team.full_name || event.visitor_team.name || ''}
+                      sport={event.sport}
+                      teamId={event.visitor_team.id}
                     />
                   </div>
                 </div>
@@ -387,13 +404,9 @@ export default function Events() {
             {/* Footer */}
             <div className="p-3 bg-gray-50 dark:bg-gray-700 text-center text-xs mt-auto">
               <span className="text-gray-500 dark:text-gray-400">
-                {new Date(event.status).toLocaleDateString(undefined, {
-                  weekday: 'short',
-                  month: 'short',
-                  day: 'numeric',
-                  hour: 'numeric',
-                  minute: '2-digit'
-                })}
+                {event.sport === 'soccer' 
+                  ? safeFormatEventDate(event.datetime || event.date) 
+                  : safeFormatEventDate(event.status)}
               </span>
             </div>
           </div>
@@ -415,7 +428,7 @@ export default function Events() {
         <GameInfoModal
           event={selectedEvent}
           onClose={() => setSelectedEvent(null)}
-          onSelectTeam={(team: 'home' | 'visitor') => {
+          onSelectTeam={(team: 'home' | 'visitor' | 'draw') => {
             setSelectedBet({ event: selectedEvent, team });
             setSelectedEvent(null);
           }}

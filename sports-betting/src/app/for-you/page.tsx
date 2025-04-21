@@ -13,10 +13,12 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Event } from '@/types/events';
+import type { Post } from '@/types/post';
 import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 import GameInfoModal from '@/components/GameInfoModal';
 import BettingModal from '@/components/BettingModal';
+import PostItem from '@/components/PostItem';
 
 // Import the TeamLogo component from the main page
 export function TeamLogo({ abbreviation, teamName }: { abbreviation: string; teamName: string }) {
@@ -38,8 +40,10 @@ export default function ForYou() {
   const [topEvents, setTopEvents] = useState<Event[]>([]);
   const [loadingTopEvents, setLoadingTopEvents] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-  const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' } | null>(null);
+  const [selectedBet, setSelectedBet] = useState<{ event: Event; team: 'home' | 'visitor' | 'draw' } | null>(null);
   const { user } = useAuth();
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(true);
 
   // Function to check if date is valid
   const isValidDate = (date: any): boolean => {
@@ -128,9 +132,50 @@ export default function ForYou() {
     }
   };
 
+  /**
+   * Fetch latest posts from Firestore
+   */
+  const fetchLatestPosts = async () => {
+    try {
+      setLoadingPosts(true);
+      const postsRef = collection(db, 'posts');
+      const q = query(
+        postsRef,
+        orderBy('createdAt', 'desc'),
+        limit(10)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      const postsData: Post[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        postsData.push({
+          id: doc.id,
+          content: data.content,
+          createdAt: data.createdAt,
+          updatedAt: data.updatedAt || null,
+          userId: data.userId,
+          username: data.username,
+          userPhotoURL: data.userPhotoURL,
+          mediaUrl: data.mediaUrl || undefined,
+          mediaType: data.mediaType || undefined,
+          taggedEvents: data.taggedEvents
+        });
+      });
+      
+      setPosts(postsData);
+    } catch (error) {
+      console.error('Error fetching posts:', error);
+    } finally {
+      setLoadingPosts(false);
+    }
+  };
+
   // Fetch top events on component mount
   useEffect(() => {
     fetchTopEvents();
+    fetchLatestPosts();
     
     // Check URL for event parameter on page load
     const urlParams = new URLSearchParams(window.location.search);
@@ -159,7 +204,7 @@ export default function ForYou() {
       window.removeEventListener('eventSelected', handleEventSelected as EventListener);
     };
   }, []);
-  
+
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
       <h2 className="text-3xl font-bold mb-8">For You Feed</h2>
@@ -289,15 +334,46 @@ export default function ForYou() {
         )}
       </div>
 
-      {/* Additional content can be added here */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden p-6 mb-6">
-        <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Personalized Recommendations</h3>
-        <p className="text-gray-600 dark:text-gray-300">
-          {user ? 
-            "Based on your previous bets, we'll show personalized event recommendations here soon." :
-            "Sign in to see personalized event recommendations."}
-        </p>
+      {/* Posts Section */}
+      <div className="mt-10">
+        <div className="flex items-center mb-6">
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Posts</h3>
+        </div>
+        
+        {loadingPosts ? (
+          <div className="space-y-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 animate-pulse">
+                <div className="flex items-center mb-3">
+                  <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-700 mr-3" />
+                  <div className="flex-1">
+                    <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded w-1/4 mb-2" />
+                    <div className="h-3 bg-gray-200 dark:bg-gray-600 rounded w-1/3" />
+                  </div>
+                </div>
+                <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded-md" />
+              </div>
+            ))}
+          </div>
+        ) : posts.length > 0 ? (
+          <div className="space-y-6">
+            {posts.map((post) => (
+              <PostItem
+                key={post.id}
+                post={post}
+                onPostDeleted={(postId) => setPosts(prev => prev.filter(p => p.id !== postId))}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
+            <p className="text-gray-500 dark:text-gray-400">
+              No posts available yet. Check back later!
+            </p>
+          </div>
+        )}
       </div>
+
       
       {/* Game Info Modal */}
       {selectedEvent && (
