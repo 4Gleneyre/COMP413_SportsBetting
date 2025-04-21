@@ -48,6 +48,30 @@ function TaggedEventItem({ eventId }: { eventId: string }) {
     }
   };
   
+  // Helper function to format dates like in GameInfoModal
+  function formatEventDate(event: Event): string {
+    try {
+      let dateString = event.status;
+      
+      // For soccer events, use datetime or date fields instead
+      if (event.sport === 'soccer') {
+        dateString = event.datetime || event.date || event.status;
+      }
+      
+      const date = new Date(dateString);
+      return date.toLocaleDateString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      console.error("Error formatting date:", error);
+      return "TBD";
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-w-[300px] h-32 bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse"></div>
@@ -102,13 +126,7 @@ function TaggedEventItem({ eventId }: { eventId: string }) {
         
         <div className="mt-1 flex justify-between items-center">
           <span className="text-sm text-gray-500 dark:text-gray-400">
-            {new Date(event.date).toLocaleDateString(undefined, { 
-              weekday: 'short',
-              month: 'short', 
-              day: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit'
-            })}
+            {formatEventDate(event)}
           </span>
           <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full text-xs font-medium">
             View event →
@@ -473,7 +491,7 @@ export default function PostItem({ post, onPostDeleted }: { post: Post; onPostDe
                 const formatDate = (date: Date) => {
                   return date.toLocaleDateString(undefined, {
                     weekday: 'short',
-                    month: 'short',
+                    month: 'short', 
                     day: 'numeric',
                     hour: 'numeric',
                     minute: '2-digit'
