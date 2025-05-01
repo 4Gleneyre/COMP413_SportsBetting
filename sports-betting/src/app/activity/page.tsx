@@ -158,6 +158,7 @@ export default function ActivityPage() {
             return (
               <div
                 key={trade.id}
+                data-testid="trade-card"
                 ref={index === trades.length - 1 ? lastTradeElementRef : null}
                 className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm border ${
                   trade.status === 'Pending' 
